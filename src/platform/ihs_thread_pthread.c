@@ -38,7 +38,7 @@ IHS_Thread *IHS_ThreadCreate(IHS_ThreadFunction *function, const char *name, voi
         free(thread);
         return NULL;
     }
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+#if defined(__linux__) && !defined(__EMSCRIPTEN__) && !defined(__native_client__) && !defined(__pnacl__)
     if (name != NULL) {
         char shortName[16];
         strncpy(shortName, name, sizeof(shortName) - 1);

@@ -78,6 +78,8 @@
             emit('streamProgress', {ip: ip}, 300);
             emit('streamStarting', {}, 700);
             emit('streamConnected', {}, 1100);
+            emit('hostActivity', {activity: bigPicture ? 1 : 3}, 1200);
+            emit('hostTitle', {title: bigPicture ? 'Steam' : 'Desktop'}, 1250);
             streaming = setInterval(function () {
                 // window.tslMockFrozen = true stands in for a stuck stream (no frames, no audio).
                 if (window.tslMockFrozen) return;
@@ -90,6 +92,7 @@
         stopStream: function () {
             record('stopStream', arguments);
             clearInterval(streaming);
+            streaming = null;
             emit('streamDisconnected', {}, 100);
             emit('streamEnded', {}, 300);
         },
@@ -98,6 +101,9 @@
         },
         legacyPlayer: function () {
             return false;
+        },
+        keepsPlayer: function () {
+            return true;
         },
         playerSetUp: function () {
             return false;
@@ -122,11 +128,15 @@
         mouseWheel: function () {},
         stats: function () {
             return JSON.stringify({connected: !!streaming, videoFrames: frames, keyFrames: 3, videoBytes: bytes,
-                audioPackets: audio, width: 1920, height: 1080, videoCodec: codec, colorspace: colorspace, targetBitrate: 20000,
-                framerateNum: 60, framerateDen: 1, videoAppended: frames, videoFailed: 0, audioAppended: audio,
-                audioFailed: 0, silenceFilled: 0, videoPackets: frames * 18, videoPacketsLost: Math.floor(frames / 40),
-                lostReports: 1, roundTripMs: 3.4, fec: true, fecRecovered: Math.floor(frames / 45),
-                fecUnrecoverable: 1});
+                audioPackets: audio, width: 1920, height: 1080, videoCodec: codec, colorspace: colorspace,
+                targetBitrate: 90000, framerateNum: 60, framerateDen: 1, videoAppended: frames, videoFailed: 0,
+                audioAppended: audio, audioFailed: 0, silenceFilled: 0, audioDropped: 0,
+                audioCallbackFrames: 240, ppbGamepads: 0, videoPackets: frames * 18,
+                videoPacketsLost: Math.floor(frames / 40), lostReports: 1, roundTripMs: 3.4, fec: true,
+                fecRecovered: Math.floor(frames / 45), fecUnrecoverable: 1, videoSessionChanges: 1,
+                videoTrackCloses: 0, lastCloseReason: -1, lastAppendError: 0, pipelineErrors: 0,
+                lastPipelineError: -1, audioConcealed: 0, picturesDecoded: frames, picturesPainted: frames,
+                picturesDropped: 0, audioGaps: 0, audioLeadMs: 5, maxFrameGapMs: 16});
         },
         setLogLevel: function () {},
     });

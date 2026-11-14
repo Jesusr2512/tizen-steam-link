@@ -1,0 +1,35 @@
+Use a shorter packet discard timeout (40 ms) on the audio data channel so single lost audio packets do not stall for 200 ms.
+
+--- a/src/session/channels/ch_data.c
++++ b/src/session/channels/ch_data.c
+@@ -32,6 +32,7 @@
+ #include "ihs_buffer_ext.h"
+ 
+ #define DISCARD_DIFF IHS_SESSION_PACKET_TIMESTAMP_FROM_MILLIS(200)
++#define AUDIO_DISCARD_DIFF IHS_SESSION_PACKET_TIMESTAMP_FROM_MILLIS(40)
+ 
+ static void DataThreadWorker(IHS_SessionChannelData *channel);
+ 
+@@ -212,6 +213,22 @@ static void DataThreadWorker(IHS_SessionChannelData *channel) {
+                     hasFrame = IHS_SessionPacketsWindowPoll(channel->window, &frame);
+                 }
+             }
++            if (!hasFrame && channel->base.type == IHS_SessionChannelTypeDataAudio) {
++                // Only apply audio's tighter 40 ms cutoff when stalled with no complete frame
++                // available, so healthy bursts > 40 ms still drain cleanly through Poll.
++                uint16_t audioDiscarded = IHS_SessionPacketsWindowDiscard(channel->window, AUDIO_DISCARD_DIFF);
++                if (audioDiscarded > 0) {
++                    IHS_SessionLog(channel->base.session, IHS_LogLevelDebug, channelName,
++                                   "Discarded %u stale audio packets", audioDiscarded);
++                    hasFrame = IHS_SessionPacketsWindowPoll(channel->window, &frame);
++                    if (!hasFrame) {
++                        uint16_t skipped = IHS_SessionPacketsWindowSkipLost(channel->window);
++                        if (skipped > 0) {
++                            hasFrame = IHS_SessionPacketsWindowPoll(channel->window, &frame);
++                        }
++                    }
++                }
++            }
+             if (hasFrame || channel->interrupted) {
+                 break;
+             }

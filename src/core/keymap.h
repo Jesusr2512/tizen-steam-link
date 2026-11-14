@@ -1,7 +1,8 @@
 #pragma once
 
 #include <cstdint>
-#include <string_view>
+
+#include "core/compat.h"
 
 namespace tsl {
 

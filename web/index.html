@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=1920, height=1080, initial-scale=1">
@@ -34,21 +34,23 @@
 
 <header class="topbar">
     <div class="brand">
-        <span class="brand-mark"><svg><use href="#i-play"/></svg></span>
+        <span class="brand-mark"><svg><use href="#i-play" xlink:href="#i-play"/></svg></span>
         <span class="brand-name">Tizen Steam Link</span>
     </div>
     <div class="status">
-        <span id="pad-indicator" class="pad-indicator" hidden><svg viewBox="0 0 64 40"><use href="#i-pad"/></svg></span>
+        <span id="pad-indicator" class="pad-indicator" hidden><svg viewBox="0 0 64 40"><use href="#i-pad" xlink:href="#i-pad"/></svg></span>
         <span id="clock" class="clock"></span>
     </div>
 </header>
 
+<div id="nacl-listener"></div>
+
 <main id="home" class="screen">
     <section class="intro">
-        <h1>Select a computer</h1>
-        <p class="sub" id="discovery-status">Looking for computers running Steam on this network</p>
+        <h1>Selecciona un equipo</h1>
+        <p class="sub" id="discovery-status">Buscando equipos con Steam abierto en la red local</p>
     </section>
-    <section id="hosts" class="tiles" aria-label="Computers"></section>
+    <section id="hosts" class="tiles" aria-label="Equipos"></section>
     <section id="details" class="details">
         <h2 data-field="title"></h2>
         <p data-field="line"></p>
@@ -57,37 +59,37 @@
 
 <div id="dialog-pair" class="dialog" hidden>
     <div class="panel">
-        <p class="eyebrow">Pair this TV</p>
+        <p class="eyebrow">Vincular televisor</p>
         <h2 data-field="hostname"></h2>
-        <p>Steam on that computer will ask for a PIN. Enter:</p>
+        <p>Steam en ese equipo pedirá un PIN. Introduce:</p>
         <div class="pin" data-field="pin"></div>
-        <p class="status" data-field="status">Waiting for the computer</p>
-        <div class="buttons"><button class="focusable" data-action="cancel">Cancel</button></div>
+        <p class="status" data-field="status">Esperando respuesta del equipo…</p>
+        <div class="buttons"><button class="focusable" data-action="cancel">Cancelar</button></div>
     </div>
 </div>
 
 <div id="dialog-add" class="dialog" hidden>
     <div class="panel">
-        <p class="eyebrow">Other computer</p>
-        <h2>Add a computer by IP address</h2>
-        <p>Use this when the computer doesn't show up on its own.</p>
+        <p class="eyebrow">Otro equipo</p>
+        <h2>Añadir equipo por IP</h2>
+        <p>Úsalo si el PC no aparece automáticamente en la lista.</p>
         <input id="add-ip" class="focusable" type="text" inputmode="decimal" placeholder="192.168.1.20"
                autocomplete="off" spellcheck="false">
         <p class="status" data-field="status"></p>
         <div class="buttons">
-            <button class="focusable primary" data-action="add">Add</button>
-            <button class="focusable" data-action="cancel">Cancel</button>
+            <button class="focusable primary" data-action="add">Añadir</button>
+            <button class="focusable" data-action="cancel">Cancelar</button>
         </div>
     </div>
 </div>
 
 <div id="dialog-settings" class="dialog" hidden>
     <div class="panel wide">
-        <p class="eyebrow">Settings</p>
-        <h2>Streaming</h2>
+        <p class="eyebrow">Ajustes</p>
+        <h2>Transmisión</h2>
         <ul class="settings" id="settings-list"></ul>
-        <p class="note">Changes apply to the next stream.</p>
-        <div class="buttons"><button class="focusable" data-action="close">Done</button></div>
+        <p class="note">Los cambios se aplican en la siguiente conexión.</p>
+        <div class="buttons"><button class="focusable" data-action="close">Listo</button></div>
     </div>
 </div>
 
@@ -96,53 +98,55 @@
         <h2 data-field="title"></h2>
         <p data-field="text"></p>
         <div class="buttons">
-            <button class="focusable danger" data-action="yes">Forget</button>
-            <button class="focusable" data-action="no">Keep</button>
+            <button class="focusable danger" data-action="yes">Olvidar</button>
+            <button class="focusable" data-action="no">Conservar</button>
         </div>
     </div>
 </div>
 
 <div id="dialog-stream-menu" class="dialog" hidden>
     <div class="panel">
-        <p class="eyebrow">Streaming</p>
+        <p class="eyebrow">En transmisión</p>
         <h2 data-field="hostname"></h2>
         <div class="buttons column">
-            <button class="focusable primary" data-action="resume">Resume</button>
-            <button class="focusable" data-action="text">Type text</button>
-            <button class="focusable" data-action="stats">Show statistics</button>
-            <button class="focusable danger" data-action="leave">Leave the stream</button>
+            <button class="focusable primary" data-action="resume">Reanudar</button>
+            <button class="focusable" data-action="desktop">Mostrar escritorio (Win+D)</button>
+            <button class="focusable" data-action="minimize">Minimizar ventanas (Win+M)</button>
+            <button class="focusable" data-action="text">Escribir texto</button>
+            <button class="focusable" data-action="stats">Estadísticas</button>
+            <button class="focusable danger" data-action="leave">Salir de la transmisión</button>
         </div>
     </div>
 </div>
 
 <div id="dialog-text" class="dialog" hidden>
     <div class="panel">
-        <p class="eyebrow">Type text</p>
-        <h2>Send text to the computer</h2>
-        <p>It goes where the cursor is on the computer, as if typed on a keyboard.</p>
+        <p class="eyebrow">Escribir texto</p>
+        <h2>Enviar texto al equipo</h2>
+        <p>Se escribirá donde esté el cursor del ordenador.</p>
         <input id="send-text" class="focusable" type="text" autocomplete="off" spellcheck="false">
         <div class="buttons">
-            <button class="focusable primary" data-action="send">Send</button>
-            <button class="focusable" data-action="cancel">Cancel</button>
+            <button class="focusable primary" data-action="send">Enviar</button>
+            <button class="focusable" data-action="cancel">Cancelar</button>
         </div>
     </div>
 </div>
 
 <div id="stream" class="screen stream" hidden>
-    <!-- Not muted: the stream's audio plays through this element. -->
+    <!-- Conservado oculto por compatibilidad compartida con src/tizen -->
     <video id="tsl-video" autoplay tabindex="-1"></video>
     <div id="stream-status" class="overlay connecting">
         <div class="connect-card">
-            <div class="connect-icon"><svg viewBox="0 0 64 64"><use href="#i-monitor"/></svg></div>
+            <div class="connect-icon"><svg viewBox="0 0 64 64"><use href="#i-monitor" xlink:href="#i-monitor"/></svg></div>
             <p class="connect-host" data-field="host"></p>
             <div class="throbber"><span></span><span></span><span></span></div>
-            <p class="connect-text" data-field="text">Connecting</p>
-            <p class="connect-hint">Hold <kbd class="key">Back</kbd> to cancel</p>
+            <p class="connect-text" data-field="text">Conectando…</p>
+            <p class="connect-hint">Mantén <kbd class="key">Volver</kbd> para cancelar</p>
         </div>
     </div>
     <div id="stream-hint" class="overlay notice" hidden>
-        <svg viewBox="0 0 64 40"><use href="#i-pad"/></svg>
-        <span>For the menu, hold <kbd class="key">Back</kbd> or press
+        <svg viewBox="0 0 64 40"><use href="#i-pad" xlink:href="#i-pad"/></svg>
+        <span>Para abrir el menú, mantén <kbd class="key">Volver</kbd> o pulsa
             <kbd class="glyph">LB</kbd><kbd class="glyph">RB</kbd><kbd class="glyph">View</kbd><kbd class="glyph">Menu</kbd></span>
     </div>
     <pre id="stream-stats" class="overlay stats" hidden></pre>

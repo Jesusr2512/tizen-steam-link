@@ -3,10 +3,9 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <optional>
 #include <string>
-#include <string_view>
 
+#include "core/compat.h"
 #include "core/ihs.h"
 
 namespace tsl {

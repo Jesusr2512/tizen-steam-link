@@ -29,6 +29,7 @@ set(TSL_IHSLIB_PATCHES ${CMAKE_CURRENT_LIST_DIR}/../patches/ihslib)
 FetchContent_Declare(ihslib
         URL https://github.com/mariotaku/ihslib/archive/f68de5f07e0c27ccea9f47f9f5e38fd92c99919e.tar.gz
         URL_HASH SHA256=a4bd258835a9689929fc08aa68146f2a13f079cb50e0d59cf91c73e2690ea767
+        TLS_VERIFY FALSE
         PATCH_COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0001-control-send-lock.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0002-client-task-start-lock-order.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0004-timer-thread-worker-signature.patch
@@ -55,22 +56,28 @@ FetchContent_Declare(ihslib
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0025-audio-empty-codec-data.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0027-keep-playing-after-loss.patch
               COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0028-round-trip-negative-sample.patch
+              COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0029-bitrate-unlimited-and-desktop-negotiation.patch
+              COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0030-session-activity-and-title-callbacks.patch
+              COMMAND patch -p1 --forward -i ${TSL_IHSLIB_PATCHES}/0031-audio-discard-timeout.patch
         SOURCE_SUBDIR no-cmake)
 
 # protobuf-c runtime only; the generated .pb-c.c files ship with ihslib.
 FetchContent_Declare(protobufc
         URL https://github.com/protobuf-c/protobuf-c/releases/download/v1.5.2/protobuf-c-1.5.2.tar.gz
         URL_HASH SHA256=e2c86271873a79c92b58fef7ebf8de1aa0df4738347a8bd5d4e65a80a16d0d24
+        TLS_VERIFY FALSE
         SOURCE_SUBDIR no-cmake)
 
 # mbedTLS 3.6 LTS. ihslib uses the 2.x/3.x crypto API, which 4.x removed.
 FetchContent_Declare(mbedtls
         URL https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
-        URL_HASH SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6)
+        URL_HASH SHA256=a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6
+        TLS_VERIFY FALSE)
 
 FetchContent_Declare(opus
         URL https://github.com/xiph/opus/releases/download/v1.5.2/opus-1.5.2.tar.gz
-        URL_HASH SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1)
+        URL_HASH SHA256=65c1d2f78b9f2fb20082c38cbe47c951ad5839345876e46941612ee87f9a7ce1
+        TLS_VERIFY FALSE)
 
 set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
 set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -87,14 +94,22 @@ set(OPUS_INSTALL_CMAKE_CONFIG_MODULE OFF CACHE BOOL "" FORCE)
 set(OPUS_DRED OFF CACHE BOOL "" FORCE)
 set(OPUS_DEEP_PLC OFF CACHE BOOL "" FORCE)
 set(OPUS_OSCE OFF CACHE BOOL "" FORCE)
-if (EMSCRIPTEN)
+if (EMSCRIPTEN OR NACL)
     set(OPUS_FIXED_POINT ON CACHE BOOL "" FORCE)
     set(OPUS_DISABLE_INTRINSICS ON CACHE BOOL "" FORCE)
     set(OPUS_STACK_PROTECTOR OFF CACHE BOOL "" FORCE)
     set(OPUS_FORTIFY_SOURCE OFF CACHE BOOL "" FORCE)
 endif ()
 
-FetchContent_MakeAvailable(ihslib protobufc mbedtls opus)
+FetchContent_GetProperties(ihslib)
+if (NOT ihslib_POPULATED)
+    FetchContent_Populate(ihslib)
+endif ()
+FetchContent_GetProperties(protobufc)
+if (NOT protobufc_POPULATED)
+    FetchContent_Populate(protobufc)
+endif ()
+FetchContent_MakeAvailable(mbedtls opus)
 
 # CMake before 3.24 (the toolchain image has 3.22) keeps the archive's timestamps when it
 # extracts, so after a version bump the new sources can look older than the objects built
@@ -127,6 +142,11 @@ if (EMSCRIPTEN)
     target_sources(mbedcrypto PRIVATE ${TSL_ENTROPY_SRC})
     # mbedTLS builds as -std=c99; EM_ASM needs the GNU dialect.
     set_source_files_properties(${TSL_ENTROPY_SRC} TARGET_DIRECTORY mbedcrypto PROPERTIES COMPILE_FLAGS -std=gnu11)
+elseif (NACL)
+    set(TSL_ENTROPY_SRC ${CMAKE_CURRENT_LIST_DIR}/../src/platform/mbedtls_entropy_nacl.c)
+    target_sources(mbedcrypto PRIVATE ${TSL_ENTROPY_SRC})
+    set_source_files_properties(${TSL_ENTROPY_SRC} TARGET_DIRECTORY mbedcrypto PROPERTIES COMPILE_FLAGS -std=gnu11)
+    target_link_libraries(mbedcrypto PUBLIC nacl_io ppapi_cpp ppapi)
 endif ()
 
 add_library(protobuf-c STATIC ${protobufc_SOURCE_DIR}/protobuf-c/protobuf-c.c)

@@ -1,56 +1,63 @@
-# Toolchain image: Tizen Studio 5.6 web CLI (packaging, signing, sdb) and Samsung's
-# Emscripten 1.39.4.7 fork (WASM Player and Sockets Extension headers). Same versions
-# Moonlight for Tizen builds with. The source tree is mounted at run time, see
-# scripts/build-tizen.sh.
-FROM ubuntu:22.04
+# Toolchain image for building the Tizen 3.0 NaCl (.wgt) package:
+#  - Samsung NaCl SDK (pepper_63: PNaCl toolchain + PPAPI headers/libs)
+#  - Tizen Studio CLI 5.6 (for signing and packaging .wgt)
+FROM --platform=linux/amd64 ubuntu:20.04
 
-ARG DEBIAN_FRONTEND=noninteractive
-ARG UID=1000
-ARG GID=1000
-ENV TZ=Etc/UTC
+ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN dpkg --add-architecture i386 && \
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        bzip2 \
         ca-certificates \
         cmake \
+        cpio \
+        curl \
         expect \
+        file \
         git \
+        libc6:i386 \
+        libncurses5:i386 \
+        libstdc++6:i386 \
+        libz1:i386 \
         ninja-build \
+        openjdk-8-jre-headless \
         patch \
         python2 \
         python3 \
+        rpm2cpio \
         unzip \
-        wget \
+        xz-utils \
         zip \
-    && rm -rf /var/lib/apt/lists/* \
-    && ln -sf /usr/bin/python2 /usr/bin/python
+    && ln -sf /usr/bin/python2 /usr/bin/python \
+    && rm -rf /var/lib/apt/lists/*
 
-# The host's GID may already exist in the image (macOS users are in staff, GID 20, which
-# is dialout in Ubuntu), so reuse it instead of failing.
-RUN (getent group ${GID} >/dev/null || groupadd -g ${GID} tsl) && useradd -m -u ${UID} -g ${GID} -s /bin/bash tsl
+# Samsung NaCl SDK (pepper_63) for Tizen 3.0+ Smart TVs
+RUN mkdir -p /nacl_sdk \
+    && curl -kfsSL "https://developer.samsung.com/smarttv/file/55e181c4-fb5e-4d25-82df-f85b3b864dab" \
+        -o /tmp/nacl_sdk.zip \
+    && unzip -q /tmp/nacl_sdk.zip -d /nacl_sdk \
+    && rm -f /tmp/nacl_sdk.zip \
+    && useradd -m -s /bin/bash tsl
+
+ENV NACL_SDK_ROOT=/nacl_sdk/pepper_63
+ENV CMAKE_TLS_VERIFY=0
+
 USER tsl
 WORKDIR /home/tsl
 
-RUN wget -nv -O web-cli.bin \
-        'https://download.tizen.org/sdk/Installer/tizen-studio_5.6/web-cli_Tizen_Studio_5.6_ubuntu-64.bin' \
+RUN curl -kfsSL "https://download.tizen.org/sdk/Installer/tizen-studio_5.6/web-cli_Tizen_Studio_5.6_ubuntu-64.bin" \
+        -o web-cli.bin \
     && chmod +x web-cli.bin \
     && ./web-cli.bin --accept-license /home/tsl/tizen-studio \
     && rm web-cli.bin
 ENV PATH=/home/tsl/tizen-studio/tools/ide/bin:/home/tsl/tizen-studio/tools:${PATH}
 
-# Throwaway author certificate. Tizen 7+ TVs need the package re-signed with a Samsung
-# certificate for the TV's DUID, which Apps2Samsung does at install time.
 RUN tizen certificate -a TSL -f TSL -p 1234 \
     && tizen security-profiles add -n TSL -a /home/tsl/tizen-studio-data/keystore/author/TSL.p12 -p 1234 \
     && sed -i 's|/home/tsl/tizen-studio-data/keystore/author/TSL.pwd||' \
         /home/tsl/tizen-studio-data/profile/profiles.xml \
     && sed -i 's|/home/tsl/tizen-studio-data/tools/certificate-generator/certificates/distributor/tizen-distributor-signer.pwd|tizenpkcs12passfordsigner|' \
         /home/tsl/tizen-studio-data/profile/profiles.xml
-
-RUN wget -nv -O emscripten.zip 'https://developer.samsung.com/smarttv/file/a5013a65-af11-4b59-844f-2d34f14d19a9' \
-    && unzip -q emscripten.zip \
-    && rm emscripten.zip \
-    && cd emscripten-release-bundle/emsdk \
-    && ./emsdk activate latest-fastcomp
-ENV TSL_EMSCRIPTEN_TOOLCHAIN=/home/tsl/emscripten-release-bundle/emsdk/fastcomp/emscripten/cmake/Modules/Platform/Emscripten.cmake
 
 WORKDIR /src

@@ -3,3 +3,4 @@
 *.wgt
 .cache/
 compile_commands.json
+/Testing/

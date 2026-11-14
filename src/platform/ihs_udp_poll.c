@@ -51,7 +51,7 @@
 #define ERROR_BACKOFF_US 20000
 /* Receive buffer sizes to ask for, largest first: the kernel caps a request at
  * net.core.rmem_max, and other stacks may refuse a large one outright. */
-static const int RECV_BUFFER_SIZES[] = {4 << 20, 2 << 20, 1 << 20, 512 << 10};
+static const int RECV_BUFFER_SIZES[] = {4 << 20, 2 << 20, 1 << 20, 512 << 10, 256 << 10, 128 << 10};
 
 /* Set by the app (src/core/log.cpp). NULL means problems go to stderr. */
 void (*TSL_PlatformLogHook)(int warning, const char *message) = NULL;
@@ -79,7 +79,7 @@ struct IHS_UDPSocket {
     bool received;
 };
 
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__native_client__) && !defined(__pnacl__)
 static pthread_once_t lossOnce = PTHREAD_ONCE_INIT;
 static double lossPercent = 0;
 static long lossMinBytes = 1000;
@@ -201,16 +201,21 @@ IHS_UDPSocket *IHS_UDPSocketOpen(bool broadcast) {
                         broadcast ? " (broadcast)" : "");
         }
     }
+    if (!broadcast) {
+        EnlargeReceiveBuffer(fd);
+    }
     return s;
 }
 
 void IHS_UDPSocketClose(IHS_UDPSocket *s) {
+    if (!s) return;
     IHS_MutexDestroy(s->mutex);
     close(s->fd);
     free(s);
 }
 
 int IHS_UDPSocketReceive(IHS_UDPSocket *s, IHS_UDPPacket *packet) {
+    if (!s) return -1;
     struct pollfd pfd = {.fd = s->fd, .events = POLLIN, .revents = 0};
     int ready = poll(&pfd, 1, s->timeoutMs);
     if (ready == 0) {
@@ -257,7 +262,7 @@ int IHS_UDPSocketReceive(IHS_UDPSocket *s, IHS_UDPPacket *packet) {
         }
         return 0;
     }
-#ifndef __EMSCRIPTEN__
+#if !defined(__EMSCRIPTEN__) && !defined(__native_client__) && !defined(__pnacl__)
     if (LossDrop(IHS_BufferPointer(&packet->buffer), len)) {
         return 0;
     }
@@ -272,6 +277,7 @@ int IHS_UDPSocketReceive(IHS_UDPSocket *s, IHS_UDPPacket *packet) {
 }
 
 bool IHS_UDPSocketSend(IHS_UDPSocket *s, const IHS_UDPPacket *packet) {
+    if (!s || !packet) return false;
     struct sockaddr_storage addr;
     socklen_t addrLen = AddressToSys(&packet->address, &addr);
     if (addrLen == 0) {
@@ -295,6 +301,7 @@ bool IHS_UDPSocketSetBlocking(IHS_UDPSocket *s, bool blocking) {
 }
 
 bool IHS_UDPSocketSetRecvTimeout(IHS_UDPSocket *s, uint32_t timeoutUs) {
+    if (!s) return false;
     int ms = (int) (timeoutUs / 1000);
     s->timeoutMs = ms > 0 ? ms : 1;
     return true;

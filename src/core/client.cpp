@@ -2,7 +2,7 @@
 
 #include <cstring>
 
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(__native_client__) && !defined(__pnacl__)
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <net/if.h>
@@ -96,7 +96,7 @@ std::optional<std::array<uint8_t, 102>> WakePacket(const std::string &mac) {
 namespace {
 std::vector<std::string> LocalBroadcastAddresses() {
     std::vector<std::string> addresses;
-#if !defined(__EMSCRIPTEN__)
+#if !defined(__EMSCRIPTEN__) && !defined(__native_client__) && !defined(__pnacl__)
     struct ifaddrs *list = nullptr;
     if (getifaddrs(&list) != 0) return addresses;
     for (struct ifaddrs *ifa = list; ifa != nullptr; ifa = ifa->ifa_next) {

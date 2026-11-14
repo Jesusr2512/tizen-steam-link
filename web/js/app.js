@@ -15,50 +15,42 @@
     var RESOLUTIONS = [
         {label: '720p', w: 1280, h: 720},
         {label: '1080p', w: 1920, h: 1080},
-        {label: '1440p', w: 2560, h: 1440},
-        {label: '4K', w: 3840, h: 2160},
     ];
 
-    var QUALITIES = {'-1': 'Automatic', 1: 'Fast', 2: 'Balanced', 3: 'Beautiful'};
-    // The player's latency mode; Automatic follows the Tizen version and the codec.
-    var LATENCIES = {0: 'Automatic', 1: 'Low', 2: 'Ultra low'};
-
-    function codecText(v) {
-        return v === 'hdr' ? 'HEVC HDR' : v ? 'HEVC' : 'H.264';
-    }
+    var QUALITIES = {'-1': 'Automática', 1: 'Rápida', 2: 'Equilibrada', 3: 'Alta calidad'};
 
     function bandwidthText(kbps) {
-        return kbps < 0 ? 'Automatic' : kbps / 1000 + ' Mbit/s';
+        if (kbps === -2) return 'Sin límite (máx. red 100M)';
+        if (kbps < 0) return 'Automático (Steam decide)';
+        return (kbps / 1000) + ' Mbit/s';
     }
 
     var SETTINGS = [
-        {key: 'resolution', label: 'Maximum resolution', values: [0, 1, 2, 3],
-            text: function (v) { return RESOLUTIONS[v].label; }},
-        {key: 'framerate', label: 'Frame rate', values: [60, 120],
+        {key: 'bigPicture', label: 'Iniciar en', values: [false, true],
+            text: function (v) { return v ? 'Big Picture' : 'Escritorio de Windows'; }},
+        {key: 'quality', label: 'Calidad de transmisión', values: [1, 2, 3, -1],
+            text: function (v) {
+                if (v === 1) return 'Rápida (Mínima latencia)';
+                if (v === 2) return 'Equilibrada';
+                if (v === 3) return 'Alta calidad';
+                return 'Automática';
+            }},
+        {key: 'resolution', label: 'Resolución máxima', values: [1, 0],
+            text: function (v) { return v === 0 ? '720p (Más rápido)' : '1080p'; }},
+        {key: 'framerate', label: 'Fotogramas por segundo', values: [60, 30],
             text: function (v) { return v + ' fps'; }},
-        // 'hdr' is HEVC with HDR10 offered: HDR only comes as HEVC.
-        {key: 'hevc', label: 'Video codec', values: [false, true, 'hdr'], text: codecText},
-        {key: 'latency', label: 'Player latency', values: [0, 1, 2],
-            text: function (v) { return LATENCIES[v]; }},
-        {key: 'quality', label: 'Quality', values: [-1, 1, 2, 3],
-            text: function (v) { return QUALITIES[v]; }},
-        {key: 'bandwidth', label: 'Bandwidth limit', values: [-1, 5000, 10000, 15000, 20000, 30000, 50000, 75000, 100000],
-            text: bandwidthText},
+        {key: 'bandwidth', label: 'Límite de ancho de banda',
+            values: [-2, -1, 75000, 50000, 30000, 20000, 10000, 5000],
+            text: function (v) { return bandwidthText(v); }},
         {key: 'audio', label: 'Audio', values: [true, false], kind: 'switch',
-            text: function (v) { return v ? 'On' : 'Off'; }},
-        {key: 'bigPicture', label: 'Start in', values: [false, true],
-            text: function (v) { return v ? 'Big Picture' : 'Desktop'; }},
-        // Automatic: keep playing on the legacy player (2020 TVs), wait elsewhere.
-        {key: 'keepPlaying', label: 'After lost video packets', values: ['auto', true, false],
-            text: function (v) { return v === 'auto' ? 'Automatic' : v ? 'Keep playing' : 'Wait for a clean picture'; }},
-        {key: 'stats', label: 'Show stream statistics', values: [false, true], kind: 'switch',
-            text: function (v) { return v ? 'Shown' : 'Hidden'; }},
+            text: function (v) { return v ? 'Activado' : 'Desactivado'; }},
+        {key: 'stats', label: 'Estadísticas en pantalla', values: [false, true], kind: 'switch',
+            text: function (v) { return v ? 'Visibles' : 'Ocultas'; }},
     ];
 
-    // 20 Mbit/s, Moonlight's default for 1080p at 60 fps: on Wi-Fi a lower limit means smaller
-    // keyframes, so fewer packets to lose. Big Picture, as in Steam's own Steam Link app.
-    var DEFAULT_SETTINGS = {resolution: 1, framerate: 60, hevc: false, latency: 0, quality: 2, bandwidth: 20000,
-        audio: true, bigPicture: true, stats: false, keepPlaying: 'auto'};
+    // Valores por defecto optimizados para baja latencia en Tizen 3.0 NaCl
+    var DEFAULT_SETTINGS = {resolution: 1, framerate: 60, hevc: false, latency: 1, quality: 1, bandwidth: -1,
+        audio: true, bigPicture: false, stats: false, keepPlaying: false};
     var ONLINE_MS = 9000;
     var PAIR_TIMEOUT_MS = 120000;
     var CONNECT_TIMEOUT_MS = 30000;
@@ -77,7 +69,8 @@
     var mod = null;  // WASM module, once ready
     var state = {
         fatal: false,  // the module failed or can't start; streaming is off
-        legacyPlayer: false,  // the TV's WASM player is the legacy one (2020 TVs, Tizen 5.5)
+        legacyPlayer: false,  // true only on legacy Tizen 5.5 MSE player needing app restart to change tracks
+        keepsPlayer: false,   // true when module stays loaded across streams without page reload
         hosts: {},
         reconnects: 0,  // automatic reconnects in a row
         settings: {},
@@ -133,6 +126,18 @@
         Object.keys(DEFAULT_SETTINGS).forEach(function (k) {
             state.settings[k] = settings.hasOwnProperty(k) ? settings[k] : DEFAULT_SETTINGS[k];
         });
+        if (state.settings.bandwidth === 100000) {
+            state.settings.bandwidth = -2;
+        }
+        // Discard obsolete or unsupported values saved by earlier pre-NaCl versions on the TV.
+        SETTINGS.forEach(function (s) {
+            if (s.values.indexOf(state.settings[s.key]) < 0) {
+                state.settings[s.key] = DEFAULT_SETTINGS[s.key];
+            }
+        });
+        state.settings.hevc = false;
+        state.settings.latency = 1;
+        state.settings.keepPlaying = false;
         store.get('hosts', []).forEach(function (h) {
             // Streaming needs the key negotiated when pairing; a host saved without one pairs again.
             var key = typeof h.key === 'string' && h.key.length === 64 ? h.key : '';
@@ -330,15 +335,15 @@
         if (state.scope === $('#home')) {
             var host = el.hasAttribute('data-ip') && state.hosts[el.getAttribute('data-ip')];
             if (host) {
-                return [['ok', canWake(host) ? 'Wake' : host.paired ? 'Stream' : 'Pair'], ['forget', 'Forget'],
-                    ['back', 'Exit']];
+                return [['ok', canWake(host) ? 'Despertar' : host.paired ? 'Transmitir' : 'Vincular'],
+                    ['forget', 'Olvidar'], ['back', 'Salir']];
             }
-            return [['ok', 'Select'], ['back', 'Exit']];
+            return [['ok', 'Seleccionar'], ['back', 'Salir']];
         }
         var hints = [];
-        if (el.hasAttribute('data-key')) hints.push(['change', 'Change']);
-        hints.push(['ok', el.tagName === 'INPUT' ? 'Next' : 'Select']);
-        hints.push(['back', state.scope === $('#dialog-settings') ? 'Done' : 'Cancel']);
+        if (el.hasAttribute('data-key')) hints.push(['change', 'Cambiar']);
+        hints.push(['ok', el.tagName === 'INPUT' ? 'Siguiente' : 'Seleccionar']);
+        hints.push(['back', state.scope === $('#dialog-settings') ? 'Listo' : 'Cancelar']);
         return hints;
     }
 
@@ -355,12 +360,11 @@
     }
 
     function settingsSummary() {
-        var res = RESOLUTIONS[state.settings.resolution] || RESOLUTIONS[1];
-        return 'Up to ' + res.label + (state.settings.framerate > 60 ? ' at ' + state.settings.framerate + ' fps' : '') +
-            '  ·  ' + codecText(state.settings.hevc) + '  ·  ' +
-            QUALITIES[state.settings.quality] + ', ' + bandwidthText(state.settings.bandwidth) + '  ·  audio ' +
-            (state.settings.audio ? 'on' : 'off') + '  ·  opens ' +
-            (state.settings.bigPicture ? 'Big Picture' : 'the desktop');
+        var res = state.settings.resolution === 0 ? RESOLUTIONS[0] : RESOLUTIONS[1];
+        return res.label + ' a ' + state.settings.framerate + ' fps  ·  H.264  ·  ' +
+            (QUALITIES[state.settings.quality] || QUALITIES[1]) + ', ' + bandwidthText(state.settings.bandwidth) +
+            '  ·  audio ' + (state.settings.audio ? 'sí' : 'no') + '  ·  abre ' +
+            (state.settings.bigPicture ? 'Big Picture' : 'el escritorio');
     }
 
     function updateDetails(el) {
@@ -369,24 +373,22 @@
         var action = el.getAttribute('data-action');
         var host = el.hasAttribute('data-ip') && state.hosts[el.getAttribute('data-ip')];
         if (action === 'add') {
-            title = 'Other computer';
-            line = 'For a computer that doesn\'t show up on its own. You need its IP address.';
+            title = 'Otro equipo';
+            line = 'Para conectar un equipo que no aparece automáticamente. Necesitas su dirección IP.';
         } else if (action === 'settings') {
-            title = 'Settings';
+            title = 'Ajustes';
             line = settingsSummary();
         } else if (host) {
             title = host.hostname;
             var st = hostState(host).cls;
             if (st === 'offline' && host.mac) {
-                line = 'Not answering. Select it to send a wake-up (Wake-on-LAN, if the computer has it on). ' +
-                    'Otherwise start Steam on it, on the same network as the TV.';
+                line = 'Sin respuesta. Selecciónalo para enviar Wake-on-LAN si el PC lo tiene activado, o abre Steam allí.';
             } else if (st === 'offline') {
-                line = 'Not answering. Start Steam on it, and check that it is on the same network as the TV.';
+                line = 'Sin respuesta. Abre Steam en el equipo y comprueba que está en la misma red que la TV.';
             } else if (st === 'unpaired') {
-                line = 'Not paired with this TV yet. Select it to get a PIN, then type the PIN into Steam on ' +
-                    'that computer.';
+                line = 'Aún sin vincular a este televisor. Selecciónalo para obtener el PIN e introducirlo en Steam.';
             } else if (host.gamesRunning) {
-                line = 'A game is running there; the stream picks it up.  ' + settingsSummary();
+                line = 'Hay un juego en ejecución; la transmisión lo recogerá directamente.  ' + settingsSummary();
             } else {
                 line = settingsSummary();
             }
@@ -408,8 +410,8 @@
 
     // Steam Link's wording for a computer's state.
     function hostState(h) {
-        if (!hostOnline(h)) return {cls: 'offline', text: 'Offline'};
-        if (!h.paired) return {cls: 'unpaired', text: 'Pair to stream'};
+        if (!hostOnline(h)) return {cls: 'offline', text: 'Desconectado'};
+        if (!h.paired) return {cls: 'unpaired', text: 'Vincular para transmitir'};
         if (h.gamesRunning) return {cls: 'ready busy', text: 'In a game'};
         return {cls: 'ready', text: 'Ready to stream'};
     }
@@ -444,7 +446,7 @@
             var tile = document.createElement('div');
             tile.className = 'tile ' + st.cls;
             tile.setAttribute('data-ip', h.ip);
-            tile.innerHTML = '<div class="art"><svg viewBox="0 0 64 64"><use href="#i-monitor"/></svg></div>' +
+            tile.innerHTML = '<div class="art"><svg viewBox="0 0 64 64"><use href="#i-monitor" xlink:href="#i-monitor"/></svg></div>' +
                 '<div class="body"><div class="name"></div><div class="state"></div><div class="meta"></div></div>';
             $('.name', tile).textContent = h.hostname;
             $('.state', tile).textContent = st.text;
@@ -457,7 +459,7 @@
             var tile = document.createElement('div');
             tile.className = 'tile action';
             tile.setAttribute('data-action', a[0]);
-            tile.innerHTML = '<div class="art"><svg viewBox="0 0 64 64"><use href="#' + a[3] + '"/></svg></div>' +
+            tile.innerHTML = '<div class="art"><svg viewBox="0 0 64 64"><use href="#' + a[3] + '" xlink:href="#' + a[3] + '"/></svg></div>' +
                 '<div class="body"><div class="name"></div><div class="meta"></div></div>';
             $('.name', tile).textContent = a[1];
             $('.meta', tile).textContent = a[2];
@@ -480,7 +482,7 @@
     var renderPending = false;
 
     function scheduleRender() {
-        if (renderPending) return;
+        if (renderPending || state.stream) return;
         renderPending = true;
         setTimeout(function () {
             renderPending = false;
@@ -566,11 +568,11 @@
             return '<span>' + d + '</span>';
         }).join('');
         var status = field(dlg, 'status');
-        status.textContent = 'Contacting ' + host.hostname + '…';
+        status.textContent = 'Contactando con ' + host.hostname + '…';
         status.className = 'status';
-        $('[data-action="cancel"]', dlg).textContent = 'Cancel';
+        $('[data-action="cancel"]', dlg).textContent = 'Cancelar';
         state.pairing = {ip: host.ip, pin: pin, timer: setTimeout(function () {
-            pairFailed('No answer from Steam on ' + host.hostname + '.');
+            pairFailed('Sin respuesta de Steam en ' + host.hostname + '.');
         }, PAIR_TIMEOUT_MS)};
         openDialog(dlg, null, function () {
             if (state.pairing) mod.cancelPair();
@@ -580,14 +582,14 @@
         var sent = mod.pair(host.ip, pin);
         note('pair ' + host.ip + ': probe ' + (sent ? 'sent' : 'NOT sent'));
         if (!sent) {
-            pairFailed('Could not contact ' + host.hostname + '.');
+            pairFailed('No se pudo contactar con ' + host.hostname + '.');
             return;
         }
         state.pairing.answered = false;
         state.pairing.noAnswer = setTimeout(function () {
             if (state.pairing && !state.pairing.answered) {
-                field(dlg, 'status').textContent = 'No answer from ' + host.hostname + ' yet. Steam has to be ' +
-                    'running there, and its firewall has to let in UDP 27036 from the TV. Blue (D) key: log.';
+                field(dlg, 'status').textContent = 'Sin respuesta aún de ' + host.hostname + '. Steam debe estar ' +
+                    'abierto allí y su firewall permitir UDP 27036 desde el televisor. Tecla azul (D): registro.';
                 field(dlg, 'status').className = 'status bad';
             }
         }, PAIR_NO_ANSWER_MS);
@@ -609,7 +611,7 @@
         var status = field(dlg, 'status');
         status.textContent = reason;
         status.className = 'status bad';
-        $('[data-action="cancel"]', dlg).textContent = 'Close';
+        $('[data-action="cancel"]', dlg).textContent = 'Cerrar';
     }
 
     function openAddDialog() {
@@ -621,7 +623,7 @@
             if (action !== 'add') return closeDialog();
             var ip = input.value.trim();
             if (!isIPv4(ip)) {
-                field(dlg, 'status').textContent = 'That is not an IPv4 address.';
+                field(dlg, 'status').textContent = 'No es una dirección IPv4 válida.';
                 field(dlg, 'status').className = 'status bad';
                 return;
             }
@@ -634,7 +636,7 @@
             saveHosts();
             if (mod) mod.probe(ip);
             closeDialog();
-            toast('Added ' + ip + '. It shows as online once Steam answers.');
+            toast('Añadido ' + ip + '. Aparecerá en línea en cuanto responda Steam.');
         });
     }
 
@@ -677,18 +679,11 @@
     function openSettings() {
         renderSettings();
         var dlg = $('#dialog-settings');
-        var hevcAtOpen = state.settings.hevc;
-        var latencyAtOpen = state.settings.latency;
         openDialog(dlg, $('#settings-list li'), function (action, el) {
             if (action === 'close' || action === 'cancel') {
                 closeDialog();
-                // The module picks the player's latency mode from these settings at page load. On a
-                // TV without ultra low latency (Tizen 5.5) the mode is the same for every setting.
-                if ((state.settings.hevc !== hevcAtOpen || state.settings.latency !== latencyAtOpen) && mod &&
-                        mod.latencyNeedsReload(!!state.settings.hevc, Number(state.settings.latency) || 0)) {
-                    reloadPage();
-                } else if (tracksPending()) {
-                    toast('The codec and audio settings apply the next time you open the app.');
+                if (tracksPending()) {
+                    toast('El cambio de audio se aplicará al reiniciar la aplicación.');
                 }
                 return;
             }
@@ -697,6 +692,40 @@
     }
 
     // Streaming
+
+    function sendWinKeyCombo(keyCode) {
+        var s = state.stream;
+        if (!mod || !mod.key || !s) return;
+        s.heldKeys['MetaLeft'] = true;
+        s.heldKeys[keyCode] = true;
+        mod.key('MetaLeft', true);
+        mod.key(keyCode, true);
+        setTimeout(function () {
+            if (!mod || !mod.key) return;
+            mod.key(keyCode, false);
+            mod.key('MetaLeft', false);
+            if (state.stream === s && s.heldKeys) {
+                delete s.heldKeys[keyCode];
+                delete s.heldKeys['MetaLeft'];
+            }
+        }, 60);
+    }
+
+    function sendDesktopShortcut() {
+        sendWinKeyCombo('KeyD');
+    }
+
+    function sendMinimizeShortcut() {
+        sendWinKeyCombo('KeyM');
+    }
+
+    function releaseHeldKeys(s) {
+        if (!s || !s.heldKeys || !mod || !mod.key) return;
+        Object.keys(s.heldKeys).forEach(function (code) {
+            if (s.heldKeys[code]) mod.key(code, false);
+        });
+        s.heldKeys = {};
+    }
 
     function showStreamStatus(text, spinner) {
         var box = $('#stream-status');
@@ -708,12 +737,16 @@
 
     function startStream(host) {
         if (!mod) return;
-        var res = RESOLUTIONS[state.settings.resolution] || RESOLUTIONS[1];
+        var res = state.settings.resolution === 0 ? RESOLUTIONS[0] : RESOLUTIONS[1];
         state.stream = {
             ip: host.ip, hostname: host.hostname, connected: false, ending: false,
+            bigPicture: !!state.settings.bigPicture,
+            hadGameRunning: !!host.gamesRunning,
+            hostActivity: 0, hostTitle: '', desktopShortcutSent: false, desktopTimer: null,
+            heldKeys: {},
             backTimer: null, statsTimer: null, last: null,
             timeout: setTimeout(function () {
-                endStream('Timed out connecting to ' + host.hostname + '.');
+                endStream('Tiempo de espera agotado conectando con ' + host.hostname + '.');
             }, CONNECT_TIMEOUT_MS),
         };
         $('#home').hidden = true;
@@ -721,21 +754,22 @@
         document.body.classList.add('streaming');
         state.scope = null;
         setFocus(null);
-        showStreamStatus('Starting the stream…');
+        showStreamStatus('Iniciando transmisión…');
+        if (mod && mod.stopDiscovery) mod.stopDiscovery();
         // The legacy player keeps the codec and audio of its first stream until the app restarts.
         var tracks = playerTracks();
         var ok = mod.startStream(host.ip, String(host.steamId || ''), host.key, res.w, res.h,
             !!tracks.hevc, !!tracks.audio, !!state.settings.bigPicture,
             Number(state.settings.quality), Number(state.settings.bandwidth), Number(state.settings.framerate),
             tracks.hevc === 'hdr', keepPlaying());
-        if (!ok) streamFailed('Could not contact ' + host.hostname + '.');
+        if (!ok) streamFailed('No se pudo conectar con ' + host.hostname + '.');
     }
 
     // After a lost connection: stream again once the computer answers.
     function resumeStream(ip) {
         var host = state.hosts[ip];
         if (!host || !host.paired) return;
-        toast('Reconnecting to ' + host.hostname + '…');
+        toast('Reconectando con ' + host.hostname + '…');
         var deadline = Date.now() + RECONNECT_WAIT_MS;
         (function wait() {
             if (state.stream) return;
@@ -745,7 +779,7 @@
                 setTimeout(wait, 500);
             } else {
                 state.reconnects = 0;
-                toast(host.hostname + ' isn\'t answering. It may be asleep or off the network.', true);
+                toast(host.hostname + ' no responde. Puede estar suspendido o fuera de la red.', true);
             }
         })();
     }
@@ -759,6 +793,7 @@
         $('#home').hidden = false;
         document.body.classList.remove('streaming');
         setScope($('#home'));
+        if (mod && mod.startDiscovery) mod.startDiscovery();
         renderHosts();
         toast(reason, true);
     }
@@ -779,18 +814,14 @@
     }
 
     function keepPlaying() {
-        var v = state.settings.keepPlaying;
-        return v === 'auto' || v === undefined ? state.legacyPlayer : v !== false;
+        return state.settings.keepPlaying === true;
     }
 
-    // Once a session exists the player stays bound to it, so the page is reloaded after the
-    // session has ended, which starts the next stream with a fresh player. The legacy player of
-    // 2020 TVs (Tizen 5.5) is the exception: on a Q74T a reload after a stream hung the browser
-    // inside the player, and the TV then closed the app. There the app goes back to the list
-    // instead and the module keeps the player for the next stream, as Moonlight for Tizen does.
-    // After a module crash (mod is null) every TV reloads, for a fresh module.
+    // Once a session exists the legacy Tizen 5.5 MSE player stays bound to its tracks until reload.
+    // On Tizen 3.0 NaCl, keepsPlayer() is true while legacyPlayer is false so streams return cleanly
+    // to the home screen without reloading AND Audio settings can still change between streams.
     function keepsPlayer() {
-        return !!(mod && state.legacyPlayer);
+        return !!(mod && state.keepsPlayer);
     }
 
     // Ends the stream view once the session is gone: after keepMs back to the list when the
@@ -814,8 +845,9 @@
         if (!s || s.ending) return;
         s.ending = true;
         s.after = {message: message || null};
-        clearTimeout(s.timeout);
-        showStreamStatus('Disconnecting…');
+        [s.timeout, s.desktopTimer].forEach(clearTimeout);
+        releaseHeldKeys(s);
+        showStreamStatus('Desconectando…');
         if (mod) mod.stopStream();
         // If the session never comes back with streamEnded, end anyway.
         scheduleEnd(s, 8000, 6000);
@@ -826,8 +858,9 @@
     function finishStream() {
         var s = state.stream;
         if (!s) return;
-        [s.timeout, s.backTimer, s.finishTimer, s.reconnectReset].forEach(clearTimeout);
+        [s.timeout, s.backTimer, s.finishTimer, s.reconnectReset, s.desktopTimer].forEach(clearTimeout);
         clearInterval(s.statsTimer);
+        releaseHeldKeys(s);
         var after = s.after || {};
         state.stream = null;
         if (state.streamMenu || dialogHandler) closeStreamDialogs();
@@ -842,6 +875,7 @@
         $('#home').hidden = false;
         document.body.classList.remove('streaming');
         setScope($('#home'));
+        if (mod && mod.startDiscovery) mod.startDiscovery();
         renderHosts();
         if (after.reconnect) {
             state.reconnects = after.reconnect.count;
@@ -864,7 +898,7 @@
         return 'loss ' + pct(lost, sent) + ' now, ' + pct(st.videoPacketsLost || 0, total) + ' overall\n' +
             (st.fec ? 'FEC: ' + st.fecRecovered + ' rebuilt, ' + st.fecUnrecoverable + ' lost' : 'FEC: off') +
             '   keyframe requests ' + (st.lostReports || 0) + '\n' +
-            'round trip ' + (st.roundTripMs > 0 ? st.roundTripMs.toFixed(1) + ' ms' : 'not measured yet') + '\n' +
+            'round trip ' + (st.roundTripMs > 0 ? st.roundTripMs.toFixed(1) + ' ms' : 'sin medir') + '\n' +
             'audio: ' + (st.audioGaps || 0) + ' gaps, ' + (st.audioDropped || 0) + ' dropped, lead ' +
             (st.audioLeadMs || 0) + ' ms   longest frame gap ' + (st.maxFrameGapMs || 0) + ' ms';
     }
@@ -872,17 +906,27 @@
     // What the TV's player does with the frames: appended, decoded, shown.
     function playerStats(st) {
         var v = $('#tsl-video');
-        var q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
-        var decoded = q ? q.totalVideoFrames : v.webkitDecodedFrameCount;
-        var dropped = q ? q.droppedVideoFrames : v.webkitDroppedFrameCount;
+        var hasVideoEl = !!(v && !state.keepsPlayer && v.readyState > 0);
+        var q = hasVideoEl && v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+        var decoded = st.picturesDecoded !== undefined ? st.picturesDecoded
+            : (q ? q.totalVideoFrames : (hasVideoEl ? v.webkitDecodedFrameCount : undefined));
+        var dropped = st.picturesDropped !== undefined ? st.picturesDropped
+            : (q ? q.droppedVideoFrames : (hasVideoEl ? v.webkitDroppedFrameCount : undefined));
+        var videoExtra = hasVideoEl
+            ? (', time ' + v.currentTime.toFixed(1) + ', ready ' + v.readyState)
+            : '';
+        var audioCfg = st.audioCallbackFrames ? (', hw ' + st.audioCallbackFrames + 'f') : '';
+        var latCfg = (st.latencyModeResult !== undefined && st.latencyModeResult !== -999)
+            ? (', vdecLow ' + st.latencyModeResult) : '';
         return 'player: appended ' + (st.videoAppended || 0) + ', decoded ' + (decoded === undefined ? '?' : decoded) +
-            ', dropped ' + (dropped === undefined ? '?' : dropped) + ', time ' + v.currentTime.toFixed(1) +
-            ', ready ' + v.readyState + '\n' +
+            ', painted ' + (st.picturesPainted || 0) +
+            ', dropped ' + (dropped === undefined ? '?' : dropped) + latCfg + videoExtra + '\n' +
             'sessions ' + (st.videoSessionChanges || 0) + ', closes ' + (st.videoTrackCloses || 0) +
             (st.lastCloseReason >= 0 ? ' (reason ' + st.lastCloseReason + ')' : '') +
             ', append error ' + (st.lastAppendError || 0) + ', pipeline errors ' + (st.pipelineErrors || 0) +
             (st.lastPipelineError >= 0 ? ' (' + st.lastPipelineError + ')' : '') +
-            '\naudio: ' + (st.audioAppended || 0) + ' frames, ' + (st.audioConcealed || 0) + ' lost ones filled in';
+            '\naudio: ' + (st.audioAppended || 0) + ' frames, ' + (st.audioConcealed || 0) + ' plc, ' +
+            (st.silenceFilled || 0) + ' silence' + audioCfg;
     }
 
     function updateStats() {
@@ -894,8 +938,8 @@
         } catch (e) {
             // A trap in the module means its memory is broken; anything else counts as nothing
             // new below.
-            if (e instanceof WebAssembly.RuntimeError) {
-                tsl.emit('fatal', {message: 'The streaming module stopped: ' + e.message, crashed: true});
+            if (typeof WebAssembly !== 'undefined' && e instanceof WebAssembly.RuntimeError) {
+                tsl.emit('fatal', {message: 'El módulo de vídeo se detuvo: ' + e.message, crashed: true});
                 return;
             }
         }
@@ -910,14 +954,17 @@
             text = st.width + 'x' + st.height + ' ' + (st.videoCodec === 5 ? 'HEVC' : 'H.264') +
                 (st.colorspace === 5 ? ' HDR' : '') + '\n' +
                 fps.toFixed(0) + ' fps   ' + mbps.toFixed(1) + ' Mbit/s\n' +
-                'target ' + (st.targetBitrate / 1000).toFixed(1) + ' Mbit/s' +  // Steam sends kbit/s
+                'target ' + (st.targetBitrate > 0 ? (st.targetBitrate / 1000).toFixed(1) + ' Mbit/s' : 'sin límite') +
                 (st.framerateDen ? ' @ ' + (st.framerateNum / st.framerateDen).toFixed(0) + ' fps' : '') + '\n' +
                 'keyframes ' + st.keyFrames + '   failed appends ' + (st.videoFailed + st.audioFailed) + '\n' +
                 networkStats(st, s.last) + '\n' + playerStats(st);
         }
         s.last = {time: now, videoFrames: st.videoFrames, videoBytes: st.videoBytes,
             videoPackets: st.videoPackets || 0, videoPacketsLost: st.videoPacketsLost || 0};
-        $('#stream-stats').textContent = text;
+        var statsEl = $('#stream-stats');
+        if (statsEl && !statsEl.hidden) {
+            statsEl.textContent = text;
+        }
     }
 
     // A frozen stream reconnects instead of staying frozen. Only once audio has arrived: with audio
@@ -931,24 +978,25 @@
             return;
         }
         if (!armed || now - s.media.time < STALL_MS) return;
-        var stalled = 'No video or audio for ' + Math.round((now - s.media.time) / 1000) + ' s, reconnecting';
+        var stalled = 'Sin vídeo ni audio durante ' + Math.round((now - s.media.time) / 1000) + ' s, reconectando';
         note('WARN [Stream] ' + stalled);
         console.warn('[Stream] ' + stalled);
         try {
             mod.stopStream();
         } catch (e) { /* reloading ends it anyway */ }
-        connectionLost(s, true, 'The stream stopped, reconnecting…');
+        connectionLost(s, true, 'La transmisión se detuvo, reconectando…');
     }
 
     // The host going silent, or the stream getting stuck, reconnects a few times in a row at
     // most; the host ending the stream itself doesn't.
     function connectionLost(s, retryable, retryText) {
         s.ending = true;
-        clearTimeout(s.timeout);
+        [s.timeout, s.desktopTimer].forEach(clearTimeout);
+        releaseHeldKeys(s);
         var retry = retryable && state.reconnects < MAX_RECONNECTS;
         s.after = retry ? {reconnect: {ip: s.ip, count: state.reconnects + 1}}
-            : {message: retryable ? 'Lost the connection to ' + s.hostname + '.' : s.hostname + ' ended the stream.'};
-        showStreamStatus(retry ? retryText : 'Disconnected');
+            : {message: retryable ? 'Se perdió la conexión con ' + s.hostname + '.' : s.hostname + ' finalizó la transmisión.'};
+        showStreamStatus(retry ? retryText : 'Desconectado');
         // The session ends by itself here (streamEnded); this is in case it doesn't.
         scheduleEnd(s, 8000, retry ? 1500 : 6000);
     }
@@ -990,7 +1038,11 @@
         }
         if (!s.connected) return;
         var code = e.code || REMOTE_CODES[e.keyCode];
-        if (code && !(down && e.repeat)) mod.key(code, down);
+        if (code && !(down && e.repeat)) {
+            if (down) s.heldKeys[code] = true;
+            else delete s.heldKeys[code];
+            mod.key(code, down);
+        }
     }
 
     // The menu over a stream: hold Back, or the pad's exit combo. While it is open the remote
@@ -999,18 +1051,30 @@
         var s = state.stream;
         if (!s || state.streamMenu) return;
         state.streamMenu = true;
+        releaseHeldKeys(s);
+        try {
+            if (document.pointerLockElement && document.exitPointerLock) document.exitPointerLock();
+        } catch (e) { /* ignore */ }
         if (mod) mod.setPadInput(false);
         var dlg = $('#dialog-stream-menu');
         field(dlg, 'hostname').textContent = s.hostname;
         var stats = $('[data-action="stats"]', dlg);
         var label = function () {
-            stats.textContent = $('#stream-stats').hidden ? 'Show statistics' : 'Hide statistics';
+            stats.textContent = $('#stream-stats').hidden ? 'Mostrar estadísticas' : 'Ocultar estadísticas';
         };
         label();
         openDialog(dlg, $('[data-action="resume"]', dlg), function (action) {
             if (action === 'stats') {
                 toggleStats();
                 label();
+            } else if (action === 'desktop') {
+                closeStreamDialogs();
+                sendDesktopShortcut();
+                toast('Mostrando escritorio (Win+D)…');
+            } else if (action === 'minimize') {
+                closeStreamDialogs();
+                sendMinimizeShortcut();
+                toast('Minimizando ventanas (Win+M)…');
             } else if (action === 'text') {
                 openTextDialog();
             } else if (action === 'leave') {
@@ -1048,25 +1112,39 @@
     }
 
     function wireStreamInput() {
-        var video = $('#tsl-video');
-        video.addEventListener('click', function () {
-            if (state.stream && state.stream.connected && video.requestPointerLock) video.requestPointerLock();
-        });
+        var streamEl = $('#stream');
+        if (streamEl) {
+            streamEl.addEventListener('click', function () {
+                if (state.stream && state.stream.connected && !state.streamMenu && !dialogHandler &&
+                        streamEl.requestPointerLock) {
+                    streamEl.requestPointerLock();
+                }
+            });
+        }
         document.addEventListener('mousemove', function (e) {
-            if (!state.stream || !state.stream.connected || !mod) return;
+            if (!state.stream || !state.stream.connected || state.streamMenu || dialogHandler || !mod) return;
             if (e.movementX || e.movementY) mod.mouseMove(e.movementX | 0, e.movementY | 0);
         });
         document.addEventListener('mousedown', function (e) {
-            if (state.stream && state.stream.connected && mod) mod.mouseButton(e.button, true);
+            if (state.stream && state.stream.connected && !state.streamMenu && !dialogHandler && mod) {
+                mod.mouseButton(e.button, true);
+            }
         });
         document.addEventListener('mouseup', function (e) {
-            if (state.stream && state.stream.connected && mod) mod.mouseButton(e.button, false);
+            if (state.stream && state.stream.connected && !state.streamMenu && !dialogHandler && mod) {
+                mod.mouseButton(e.button, false);
+            }
         });
         document.addEventListener('wheel', function (e) {
-            if (state.stream && state.stream.connected && mod) mod.mouseWheel(e.deltaY > 0 ? 1 : (e.deltaY < 0 ? -1 : 0));
-        }, {passive: true});
+            if (state.stream && state.stream.connected && !state.streamMenu && !dialogHandler && mod) {
+                mod.mouseWheel(e.deltaY > 0 ? 1 : (e.deltaY < 0 ? -1 : 0));
+            }
+        }, false);
         document.addEventListener('contextmenu', function (e) {
             if (state.stream) e.preventDefault();
+        });
+        window.addEventListener('blur', function () {
+            if (state.stream) releaseHeldKeys(state.stream);
         });
         document.addEventListener('visibilitychange', function () {
             // The TV's Home button hides the app; don't keep a stream running in the background.
@@ -1145,6 +1223,7 @@
                 e.preventDefault();
                 if (inInput && e.keyCode === KEY.BACK) {
                     el.blur();
+                    return;
                 }
                 if (state.scope === $('#home')) {
                     exitApp();
@@ -1171,6 +1250,15 @@
     }
 
     function pollPads(ts) {
+        if (state.stream && !state.streamMenu) {
+            // Do not schedule 60 Hz requestAnimationFrame callbacks in Blink while streaming:
+            // on Tizen 3.0's compositor, a 60 Hz JS rAF loop competes with NaCl SwapBuffers
+            // for VSync slots and halves the video render rate to 30 fps.
+            setTimeout(function () {
+                pollPads(Date.now());
+            }, 250);
+            return;
+        }
         var anyPad = false;
         if (navigator.getGamepads) {
             var all = navigator.getGamepads();
@@ -1246,7 +1334,7 @@
             if (state.pairing && state.pairing.ip === d.ip && !state.pairing.answered) {
                 state.pairing.answered = true;
                 var status = field($('#dialog-pair'), 'status');
-                status.textContent = 'Enter the PIN in the dialog Steam opened on ' + d.hostname + '.';
+                status.textContent = 'Introduce el PIN en la ventana de Steam en ' + d.hostname + '.';
                 status.className = 'status';
                 note('pair ' + d.ip + ': host answered, pairing request sent');
             }
@@ -1254,7 +1342,7 @@
         });
         tsl.on('pairProgress', function (d) {
             if (state.pairing && state.pairing.ip === d.ip) {
-                field($('#dialog-pair'), 'status').textContent = 'Waiting for the PIN…';
+                field($('#dialog-pair'), 'status').textContent = 'Esperando confirmación del PIN…';
             }
         });
         tsl.on('pairSucceeded', function (d) {
@@ -1269,17 +1357,17 @@
             if (state.pairing && state.pairing.ip === d.ip) {
                 endPairing();
                 closeDialog();
-                toast('Paired with ' + (h ? h.hostname : d.ip) + '. Press OK to stream.');
+                toast('Vinculado con ' + (h ? h.hostname : d.ip) + '. Pulsa OK para conectar.');
             }
         });
         tsl.on('pairFailed', function (d) {
-            if (state.pairing && state.pairing.ip === d.ip) pairFailed('Pairing failed: ' + d.reason + '.');
+            if (state.pairing && state.pairing.ip === d.ip) pairFailed('Error al vincular: ' + d.reason + '.');
         });
         tsl.on('streamProgress', function () {
-            if (state.stream) showStreamStatus('Waiting for ' + state.stream.hostname + '…');
+            if (state.stream) showStreamStatus('Esperando a ' + state.stream.hostname + '…');
         });
         tsl.on('streamStarting', function () {
-            if (state.stream) showStreamStatus('Connecting…');
+            if (state.stream) showStreamStatus('Conectando…');
         });
         tsl.on('streamFailed', function (d) {
             if (d.result === 1 && state.stream) {
@@ -1291,7 +1379,22 @@
                     saveHosts();
                 }
             }
-            streamFailed('Could not stream: ' + d.reason + '.');
+            streamFailed('No se pudo iniciar la transmisión: ' + d.reason + '.');
+        });
+        tsl.on('hostTitle', function (d) {
+            var s = state.stream;
+            if (!s) return;
+            s.hostTitle = String(d && d.title || '');
+        });
+        tsl.on('hostActivity', function (d) {
+            var s = state.stream;
+            if (!s) return;
+            s.hostActivity = (d && d.activity) | 0;
+            // IHS_StreamActivityGame (2): never trigger Win+D minimize when a game is running.
+            if (s.hostActivity === 2 && s.desktopTimer) {
+                clearTimeout(s.desktopTimer);
+                s.desktopTimer = null;
+            }
         });
         tsl.on('streamConnected', function () {
             var s = state.stream;
@@ -1310,24 +1413,37 @@
             }, 6000);
             $('#stream-stats').hidden = !state.settings.stats;
             s.statsTimer = setInterval(updateStats, 1000);
+            if (!s.bigPicture && !s.hadGameRunning && !s.desktopShortcutSent && s.hostActivity !== 2) {
+                s.desktopTimer = setTimeout(function () {
+                    s.desktopTimer = null;
+                    if (state.stream === s && s.connected && !s.ending &&
+                            !s.desktopShortcutSent && s.hostActivity !== 2) {
+                        s.desktopShortcutSent = true;
+                        sendDesktopShortcut();
+                    }
+                }, 1200);
+            }
         });
         tsl.on('streamDisconnected', function (d) {
             var s = state.stream;
             if (!s) return;
             s.connected = false;
-            if (!s.ending) connectionLost(s, !!(d && d.timedOut), 'Connection lost, reconnecting…');
+            if (!s.ending) connectionLost(s, !!(d && d.timedOut), 'Conexión perdida, reconectando…');
         });
         tsl.on('videoFailed', function (d) {
             var s = state.stream;
             if (!s || s.ending) return;
             s.ending = true;
-            clearTimeout(s.timeout);
-            // The legacy player keeps the tracks it tried for the page, so a new try needs an app start.
+            [s.timeout, s.desktopTimer].forEach(clearTimeout);
+            releaseHeldKeys(s);
+            if (mod && mod.stopStream) {
+                try { mod.stopStream(); } catch (e) { /* ignore */ }
+            }
             s.after = {message: d.restartNeeded
-                ? 'This TV can only change the video format when the app starts. Close the app and open it again.'
-                : 'This TV could not play the stream at these settings. Try 60 fps or a lower resolution' +
-                    (state.legacyPlayer ? ', then close the app and open it again.' : '.')};
-            showStreamStatus('The TV could not play this video', false);
+                ? 'Este televisor requiere reiniciar la app para cambiar el formato de vídeo.'
+                : 'El televisor no pudo decodificar esta configuración. Prueba 720p o 30 fps' +
+                    (state.legacyPlayer ? ' y reinicia la aplicación.' : '.')};
+            showStreamStatus('El televisor no pudo reproducir el vídeo', false);
             scheduleEnd(s, 8000, 6000);
         });
         tsl.on('streamEnded', function () {
@@ -1347,10 +1463,10 @@
             }
         });
         tsl.on('gamepadConnected', function (d) {
-            if (state.stream) toast('Controller ' + (d.slot + 1) + ' connected');
+            if (state.stream) toast('Mando ' + (d.slot + 1) + ' conectado');
         });
         tsl.on('gamepadDisconnected', function (d) {
-            if (state.stream) toast('Controller ' + (d.slot + 1) + ' disconnected');
+            if (state.stream) toast('Mando ' + (d.slot + 1) + ' desconectado');
         });
         tsl.on('rumble', function (d) {
             var pads = navigator.getGamepads ? navigator.getGamepads() : [];
@@ -1387,7 +1503,7 @@
                 state.stream.connected = false;
                 if (!state.stream.ending) {
                     console.warn('[Stream] ' + d.message);
-                    connectionLost(state.stream, true, 'The app hit an error, reconnecting…');
+                    connectionLost(state.stream, true, 'La aplicación sufrió un error, reconectando…');
                 }
                 return;
             }
@@ -1444,7 +1560,7 @@
     }
 
     function probeSaved() {
-        if (!mod) return;
+        if (!mod || state.stream) return;
         state.broadcasts.forEach(function (b) {
             mod.probe(b);
         });
@@ -1481,11 +1597,12 @@
             }
         });
         setScope($('#home'));
+        if (mod && mod.startDiscovery) mod.startDiscovery();
         renderHosts();
         requestAnimationFrame(pollPads);
         updateClock();
         setInterval(updateClock, 10000);
-        $('#footer-left').textContent = 'Unofficial client · not affiliated with Valve' + deviceLabel();
+        $('#footer-left').textContent = 'Cliente no oficial · sin afiliación con Valve' + deviceLabel();
 
         var message = null, reconnect = null;
         try {
@@ -1497,17 +1614,11 @@
         if (message) toast(message);
         state.reconnects = reconnect ? reconnect.count : 0;
 
-        // Without WebAssembly (TVs older than Tizen 5.5) the module can't load at all, and a module
-        // that never finishes starting leaves a page that looks fine but can't do anything. Say so.
-        if (typeof WebAssembly !== 'object') {
-            tsl.emit('fatal', {message: "This TV can't run the streaming part of the app. It needs " +
-                    'Tizen 5.5 or later (2020 models on).'});
-        }
+        // On Tizen 3.0+, the streaming module runs as a NaCl plugin (#nacl_module).
         setTimeout(function () {
             if (!mod && !state.fatal) {
-                tsl.emit('fatal', {message: "The streaming part of the app hasn't started after " +
-                        STARTUP_TIMEOUT_MS / 1000 + ' seconds. Restart the TV fully (hold the power ' +
-                        'button), then open the app again.'});
+                tsl.emit('fatal', {message: 'El módulo de transmisión no ha respondido tras ' +
+                        STARTUP_TIMEOUT_MS / 1000 + ' segundos. Reinicia el televisor por completo y vuelve a abrir la app.'});
             }
         }, STARTUP_TIMEOUT_MS);
 
@@ -1521,11 +1632,12 @@
             }
             if (!m.init(identity)) {
                 store.remove('identity');
-                toast('Could not start the streaming module. Restart the app.', true);
+                toast('No se pudo iniciar el módulo de transmisión. Reinicia la aplicación.', true);
                 return;
             }
             mod = m;
             state.legacyPlayer = !!(m.legacyPlayer && m.legacyPlayer());
+            state.keepsPlayer = !!(m.keepsPlayer ? m.keepsPlayer() : state.legacyPlayer);
             note('module ready, identity ' + identity.slice(5, 21));
             findLocalBroadcasts();
             mod.startDiscovery();

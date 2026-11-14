@@ -1,0 +1,64 @@
+Expose host SetTitle and SetActivity control messages to session callbacks.
+
+--- a/include/ihslib/session.h
++++ b/include/ihslib/session.h
+@@ -77,6 +77,14 @@ typedef struct IHS_SessionConfig {
+     bool desktopMode;
+ } IHS_SessionConfig;
+ 
++typedef enum IHS_StreamActivity {
++    IHS_StreamActivityIdle = 1,
++    IHS_StreamActivityGame = 2,
++    IHS_StreamActivityDesktop = 3,
++    IHS_StreamActivitySecureDesktop = 4,
++    IHS_StreamActivityMusic = 5,
++} IHS_StreamActivity;
++
+ typedef struct IHS_StreamSessionCallbacks {
+     void (*initialized)(IHS_Session *session, void *context);
+ 
+@@ -93,6 +101,10 @@ typedef struct IHS_StreamSessionCallbacks {
+      * @param context Callback context
+      */
+     void (*finalized)(IHS_Session *session, void *context);
++
++    void (*setTitle)(IHS_Session *session, const char *title, void *context);
++
++    void (*setActivity)(IHS_Session *session, IHS_StreamActivity activity, void *context);
+ } IHS_StreamSessionCallbacks;
+ 
+ /*
+--- a/src/session/channels/ch_control.c
++++ b/src/session/channels/ch_control.c
+@@ -370,12 +370,31 @@ static void OnControlReceived(IHS_SessionChannel *channel, IHS_SessionPacket *pa
+                 break;
+             }
+             IHS_SessionLog(channel->session, IHS_LogLevelInfo, "Control", "Set title: %s", message->text);
++            const IHS_StreamSessionCallbacks *callbacks = channel->session->callbacks.session;
++            if (callbacks && callbacks->setTitle) {
++                callbacks->setTitle(channel->session, message->text ? message->text : "",
++                                    channel->session->callbackContexts.session);
++            }
+             cset_title_msg__free_unpacked(message, NULL);
+             break;
+         }
+         case k_EStreamControlSetIcon:
++            break;
+         case k_EStreamControlSetActivity:
++        {
++            CSetActivityMsg *message = IHS_UNPACK_BUFFER(cset_activity_msg__unpack, payload);
++            if (message == NULL) {
++                IHS_SessionLog(channel->session, IHS_LogLevelWarn, "Control", "Malformed CSetActivityMsg");
++                break;
++            }
++            const IHS_StreamSessionCallbacks *callbacks = channel->session->callbacks.session;
++            if (callbacks && callbacks->setActivity && message->has_activity) {
++                callbacks->setActivity(channel->session, (IHS_StreamActivity) message->activity,
++                                       channel->session->callbackContexts.session);
++            }
++            cset_activity_msg__free_unpacked(message, NULL);
+             break;
++        }
+         case k_EStreamControlRemoteHID: {
+             CRemoteHIDMsg *message = IHS_UNPACK_BUFFER(cremote_hidmsg__unpack, payload);
+             if (message == NULL) {

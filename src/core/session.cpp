@@ -18,6 +18,8 @@ Session::Session(const Identity &identity, const HostKey &key, const IHS_Session
             .connected = CbConnected,
             .disconnected = CbDisconnected,
             .finalized = CbFinalized,
+            .setTitle = CbSetTitle,
+            .setActivity = CbSetActivity,
     };
     static const IHS_StreamVideoCallbacks videoCallbacks = {
             .start = CbVideoStart,
@@ -170,11 +172,14 @@ void Session::CbConfiguring(IHS_Session *, IHS_SessionConfig *config, void *cont
     config->maxFramerate = self->options_.maxFramerate;
     config->enableHdr = self->options_.hdr && config->enableHevc;  // HDR10 comes as HEVC
     config->keepPlayingAfterLoss = self->options_.keepPlayingAfterLoss;
+    config->unlimitedBitrate = self->options_.unlimitedBitrate;
+    config->desktopMode = self->options_.desktopMode;
     Log(IHS_LogLevelInfo, "Session",
-        "Negotiating: audio=%d hevc=%d hdr=%d fec=%d quality=%d bitrate=%d max=%dx%d@%d keepPlaying=%d",
+        "Negotiating: audio=%d hevc=%d hdr=%d fec=%d quality=%d bitrate=%d unlimited=%d desktop=%d max=%dx%d@%d "
+        "keepPlaying=%d",
         config->enableAudio, config->enableHevc, config->enableHdr, config->enableFec, config->quality,
-        config->bitrateKbps, config->maxWidth, config->maxHeight, config->maxFramerate,
-        config->keepPlayingAfterLoss);
+        config->bitrateKbps, config->unlimitedBitrate, config->desktopMode, config->maxWidth, config->maxHeight,
+        config->maxFramerate, config->keepPlayingAfterLoss);
 }
 
 void Session::CbConnected(IHS_Session *session, void *context) {
@@ -192,6 +197,14 @@ void Session::CbDisconnected(IHS_Session *, void *context) {
 
 void Session::CbFinalized(IHS_Session *, void *context) {
     static_cast<Session *>(context)->listener_->OnSessionFinalized();
+}
+
+void Session::CbSetTitle(IHS_Session *, const char *title, void *context) {
+    static_cast<Session *>(context)->listener_->OnHostTitle(title ? title : "");
+}
+
+void Session::CbSetActivity(IHS_Session *, IHS_StreamActivity activity, void *context) {
+    static_cast<Session *>(context)->listener_->OnHostActivity(activity);
 }
 
 int Session::CbVideoStart(IHS_Session *, const IHS_StreamVideoConfig *config, void *context) {

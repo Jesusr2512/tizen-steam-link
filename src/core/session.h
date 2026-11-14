@@ -53,6 +53,10 @@ struct SessionOptions {
     // After a lost video frame, go on decoding the frames that follow (the picture may smear)
     // instead of dropping them until a keyframe arrives.
     bool keepPlayingAfterLoss = false;
+    // Send k_EStreamBitrateUnlimited (0) instead of treating 0 as 30000 kbit/s default.
+    bool unlimitedBitrate = false;
+    // Request Computer form factor and desktop controller behavior instead of TV Big Picture.
+    bool desktopMode = false;
 };
 
 struct SessionStats {
@@ -97,6 +101,8 @@ public:
         virtual void OnVideoFailed() {}
         virtual void OnCursorShown(float x, float y) { (void) x, (void) y; }
         virtual void OnCursorHidden() {}
+        virtual void OnHostTitle(const std::string &title) { (void) title; }
+        virtual void OnHostActivity(IHS_StreamActivity activity) { (void) activity; }
     };
 
     // identity, media and listener must outlive the session. key is the host's pairing key.
@@ -130,6 +136,8 @@ private:
     static void CbConnected(IHS_Session *session, void *context);
     static void CbDisconnected(IHS_Session *session, void *context);
     static void CbFinalized(IHS_Session *session, void *context);
+    static void CbSetTitle(IHS_Session *session, const char *title, void *context);
+    static void CbSetActivity(IHS_Session *session, IHS_StreamActivity activity, void *context);
     static void CbConfiguring(IHS_Session *session, IHS_SessionConfig *config, void *context);
     static int CbVideoStart(IHS_Session *session, const IHS_StreamVideoConfig *config, void *context);
     static IHS_StreamVideoSubmitResult CbVideoSubmit(IHS_Session *session, IHS_Buffer *data,

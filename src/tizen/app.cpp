@@ -649,7 +649,7 @@ bool StartStream(const std::string &ip, const std::string &steamId, const std::s
     if (!HexDecode(keyHex, params.key.data(), params.key.size())) return false;
     params.request.maxWidth = maxWidth;
     params.request.maxHeight = maxHeight;
-    params.request.interface = bigPicture ? IHS_StreamInterfaceBigPicture : IHS_StreamInterfaceDefault;
+    params.request.interface = bigPicture ? IHS_StreamInterfaceBigPicture : IHS_StreamInterfaceDesktop;
     params.request.hdr = hdr;
     params.options.hevc = hevc || hdr;
     params.options.hdr = hdr;

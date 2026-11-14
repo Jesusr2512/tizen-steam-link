@@ -1,0 +1,10 @@
+{
+  "program": {
+    "arm": {
+      "url": "tsl-arm.nexe"
+    },
+    "x86-32": {
+      "url": "tsl-x86-32.nexe"
+    }
+  }
+}

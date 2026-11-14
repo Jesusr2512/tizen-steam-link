@@ -1,53 +1,25 @@
-/* Look follows Steam's Big Picture mode and the Steam Link app: near-black navy, slate
- * panels, white focus glow, a hint bar at the bottom. Colors were sampled from a Big
- * Picture stream. No Valve logos, artwork or fonts are used; Figtree (OFL) stands in for
- * Motiva Sans.
+/* Look follows Steam's Big Picture mode and the Steam Link app: deep navy background,
+ * slate panels, white focus glow, a hint bar at the bottom.
  *
- * Written for the Tizen 5.5 browser (Chromium 69): no `inset`, no flex `gap`, no
- * backdrop-filter. */
+ * Written for the Tizen 3.0 browser (Chromium 47): no CSS custom properties (var(--*)),
+ * no `inset`, no flex `gap`, no backdrop-filter. */
 
 @font-face {
     font-family: "Figtree";
     font-weight: 400;
-    font-display: swap;
     src: url("../fonts/figtree-latin-400.woff2") format("woff2");
 }
 
 @font-face {
     font-family: "Figtree";
     font-weight: 500;
-    font-display: swap;
     src: url("../fonts/figtree-latin-500.woff2") format("woff2");
 }
 
 @font-face {
     font-family: "Figtree";
     font-weight: 700;
-    font-display: swap;
     src: url("../fonts/figtree-latin-700.woff2") format("woff2");
-}
-
-:root {
-    --bg-top: #03070a;
-    --bg-bottom: #0e151b;
-    --panel: #23282f;
-    --panel-2: #2e3339;
-    --panel-3: #3d4450;
-    --line: #3a424c;
-    --text: #ffffff;
-    --text-2: #dcdedf;
-    --muted: #9aa4ae;
-    --dim: #67707a;
-    --accent: #1a9fff;
-    --accent-2: #4cb4ff;
-    --play-a: #70d61d;
-    --play-b: #01a75b;
-    --ok: #59bf40;
-    --warn: #e5b143;
-    --bad: #e2534b;
-    --remote-red: #d23b3b;
-    --glow: 0 0 0 3px #ffffff, 0 0 26px 4px rgba(170, 210, 255, 0.45);
-    --safe-x: 96px;
 }
 
 * {
@@ -59,19 +31,30 @@ html, body {
     width: 1920px;
     height: 1080px;
     overflow: hidden;
-    color: var(--text);
+    color: #ffffff;
+    background-color: #141e28;
     font-family: "Figtree", "SamsungOne", "Roboto", "Helvetica Neue", Arial, sans-serif;
     font-size: 28px;
     -webkit-font-smoothing: antialiased;
 }
 
 body {
-    background: radial-gradient(1400px 700px at 18% -10%, rgba(26, 72, 120, 0.35), rgba(26, 72, 120, 0) 70%),
-                linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+    background: radial-gradient(1400px 700px at 18% -10%, rgba(36, 98, 160, 0.45), rgba(36, 98, 160, 0) 70%),
+                linear-gradient(180deg, #0d1620 0%, #16222f 100%);
 }
 
 [hidden] {
     display: none !important;
+    animation: none !important;
+}
+
+[hidden] * {
+    animation: none !important;
+    transition: none !important;
+}
+
+body.streaming {
+    background: #000000 !important;
 }
 
 .sprites {
@@ -95,7 +78,7 @@ svg {
     left: 0;
     right: 0;
     height: 88px;
-    padding: 0 var(--safe-x);
+    padding: 0 96px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -105,7 +88,7 @@ svg {
 .brand {
     display: flex;
     align-items: center;
-    color: var(--muted);
+    color: #b0bcc8;
     font-size: 22px;
     font-weight: 700;
     letter-spacing: 0.14em;
@@ -119,14 +102,14 @@ svg {
     margin-right: 16px;
     padding: 6px;
     border-radius: 50%;
-    background: var(--accent);
+    background: #1a9fff;
     color: #ffffff;
 }
 
 .status {
     display: flex;
     align-items: center;
-    color: var(--text-2);
+    color: #e4e8ec;
 }
 
 .pad-indicator {
@@ -134,13 +117,13 @@ svg {
     width: 46px;
     height: 30px;
     margin-right: 28px;
-    color: var(--text-2);
+    color: #e4e8ec;
 }
 
 .clock {
+    color: #ffffff;
     font-size: 30px;
     font-weight: 500;
-    font-variant-numeric: tabular-nums;
 }
 
 /* Screens */
@@ -154,11 +137,13 @@ svg {
 }
 
 #home {
-    padding: 150px var(--safe-x) 0;
+    z-index: 1;
+    padding: 150px 96px 0;
 }
 
 .intro h1 {
     margin: 0;
+    color: #ffffff;
     font-size: 64px;
     font-weight: 700;
     letter-spacing: -0.01em;
@@ -166,22 +151,19 @@ svg {
 
 .sub {
     margin: 14px 0 0;
-    color: var(--muted);
+    color: #b0bcc8;
     font-size: 28px;
 }
 
 /* Computer tiles (Steam Link style) */
 
-/* One row that runs off the right edge and scrolls to the focused tile, like a Big Picture
- * shelf. The padding leaves room for the focus glow and zoom. */
 .tiles {
     position: relative;
     display: flex;
     flex-wrap: nowrap;
-    margin: 40px calc(-1 * var(--safe-x)) 0;
-    padding: 28px var(--safe-x);
+    margin: 40px -96px 0;
+    padding: 28px 96px;
     overflow: hidden;
-    scroll-behavior: smooth;
 }
 
 .tile {
@@ -191,7 +173,8 @@ svg {
     height: 360px;
     margin-right: 28px;
     border-radius: 10px;
-    background: var(--panel-2);
+    background: #2b3440;
+    color: #ffffff;
     overflow: hidden;
     outline: none;
     transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
@@ -202,18 +185,18 @@ svg {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(160deg, #34404f 0%, #1c232c 100%);
-    color: #c7d5e0;
+    background: linear-gradient(160deg, #3c4a5c 0%, #222b36 100%);
+    color: #d6e2ee;
 }
 
 .tile.ready .art {
-    background: linear-gradient(160deg, #1f5f99 0%, #12304e 100%);
+    background: linear-gradient(160deg, #1f69a8 0%, #14385c 100%);
     color: #ffffff;
 }
 
 .tile.offline .art {
-    background: linear-gradient(160deg, #2a3038 0%, #181d23 100%);
-    color: var(--dim);
+    background: linear-gradient(160deg, #303742 0%, #1d232b 100%);
+    color: #7d8894;
 }
 
 .tile .art svg {
@@ -226,6 +209,7 @@ svg {
 }
 
 .tile .name {
+    color: #ffffff;
     font-size: 32px;
     font-weight: 700;
     white-space: nowrap;
@@ -237,7 +221,7 @@ svg {
     display: flex;
     align-items: center;
     margin-top: 8px;
-    color: var(--text-2);
+    color: #e4e8ec;
     font-size: 24px;
 }
 
@@ -247,25 +231,25 @@ svg {
     height: 12px;
     margin-right: 12px;
     border-radius: 50%;
-    background: var(--dim);
+    background: #7d8894;
 }
 
 .tile.ready .state::before {
-    background: var(--ok);
+    background: #59bf40;
     box-shadow: 0 0 10px rgba(89, 191, 64, 0.8);
 }
 
 .tile.unpaired .state::before {
-    background: var(--accent);
+    background: #1a9fff;
 }
 
 .tile.busy .state::before {
-    background: var(--warn);
+    background: #e5b143;
 }
 
 .tile .meta {
     margin-top: 6px;
-    color: var(--dim);
+    color: #9aa6b2;
     font-size: 21px;
     white-space: nowrap;
     overflow: hidden;
@@ -273,8 +257,8 @@ svg {
 }
 
 .tile.action .art {
-    background: linear-gradient(160deg, #2b323c 0%, #1b2128 100%);
-    color: var(--muted);
+    background: linear-gradient(160deg, #333c48 0%, #202730 100%);
+    color: #b0bcc8;
 }
 
 .tile.action .art svg {
@@ -284,8 +268,8 @@ svg {
 
 .tile.focused {
     transform: scale(1.05);
-    box-shadow: var(--glow);
-    background: var(--panel-3);
+    box-shadow: 0 0 0 3px #ffffff, 0 0 26px 4px rgba(170, 210, 255, 0.45);
+    background: #3d4856;
 }
 
 .tile.action.focused .art {
@@ -301,13 +285,14 @@ svg {
 
 .details h2 {
     margin: 0;
+    color: #ffffff;
     font-size: 40px;
     font-weight: 700;
 }
 
 .details p {
     margin: 12px 0 0;
-    color: var(--muted);
+    color: #b0bcc8;
     font-size: 27px;
     line-height: 1.45;
 }
@@ -321,16 +306,16 @@ svg {
     right: 0;
     bottom: 0;
     height: 76px;
-    padding: 0 var(--safe-x);
+    padding: 0 96px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     background: linear-gradient(90deg, #242d38 0%, #1a1f25 55%, #12181b 100%);
-    border-top: 1px solid rgba(255, 255, 255, 0.04);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .footer-left {
-    color: var(--muted);
+    color: #b0bcc8;
     font-size: 21px;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -345,6 +330,7 @@ svg {
     display: flex;
     align-items: center;
     margin-left: 40px;
+    color: #ffffff;
     font-size: 21px;
     font-weight: 700;
     letter-spacing: 0.1em;
@@ -375,15 +361,15 @@ svg {
     height: 32px;
     padding: 0 12px;
     border-radius: 7px;
-    border: 2px solid var(--text-2);
-    color: var(--text);
+    border: 2px solid #dcdedf;
+    color: #ffffff;
     font-size: 17px;
     letter-spacing: 0.06em;
 }
 
 .key.red {
-    border-color: var(--remote-red);
-    background: var(--remote-red);
+    border-color: #d23b3b;
+    background: #d23b3b;
 }
 
 /* Dialogs */
@@ -406,7 +392,8 @@ svg {
     width: 960px;
     padding: 56px 64px 48px;
     border-radius: 12px;
-    background: linear-gradient(180deg, #2a3038 0%, #1f242b 100%);
+    background: linear-gradient(180deg, #2d3540 0%, #212730 100%);
+    color: #ffffff;
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
 }
 
@@ -416,7 +403,7 @@ svg {
 
 .eyebrow {
     margin: 0 0 6px !important;
-    color: var(--accent-2);
+    color: #4cb4ff;
     font-size: 20px;
     font-weight: 700;
     letter-spacing: 0.14em;
@@ -425,13 +412,14 @@ svg {
 
 .panel h2 {
     margin: 0 0 22px;
+    color: #ffffff;
     font-size: 46px;
     font-weight: 700;
 }
 
 .panel p {
     margin: 12px 0;
-    color: var(--text-2);
+    color: #e4e8ec;
 }
 
 .pin {
@@ -448,24 +436,24 @@ svg {
     align-items: center;
     justify-content: center;
     border-radius: 12px;
-    border: 2px solid var(--line);
+    border: 2px solid #3a424c;
     background: #0f1419;
+    color: #ffffff;
     font-size: 104px;
     font-weight: 700;
-    font-variant-numeric: tabular-nums;
 }
 
 .status {
     min-height: 1.4em;
-    color: var(--muted) !important;
+    color: #b0bcc8 !important;
 }
 
 .status.bad {
-    color: var(--bad) !important;
+    color: #e2534b !important;
 }
 
 .note {
-    color: var(--muted) !important;
+    color: #b0bcc8 !important;
     font-size: 22px;
 }
 
@@ -494,8 +482,8 @@ button.focusable {
     border: 0;
     border-radius: 6px;
     outline: none;
-    background: var(--panel-3);
-    color: var(--text);
+    background: #3d4450;
+    color: #ffffff;
     font: inherit;
     font-size: 26px;
     font-weight: 700;
@@ -504,7 +492,7 @@ button.focusable {
 }
 
 button.focusable.primary {
-    background: linear-gradient(90deg, var(--accent) 0%, #0c7fdc 100%);
+    background: linear-gradient(90deg, #1a9fff 0%, #0c7fdc 100%);
 }
 
 button.focusable.danger {
@@ -522,11 +510,11 @@ input.focusable {
     width: 100%;
     margin-top: 18px;
     padding: 18px 26px;
-    border: 2px solid var(--line);
+    border: 2px solid #3a424c;
     border-radius: 8px;
     outline: none;
     background: #0f1419;
-    color: var(--text);
+    color: #ffffff;
     font: inherit;
     font-size: 42px;
     letter-spacing: 0.04em;
@@ -545,38 +533,39 @@ input.focusable.focused {
     padding: 0;
 }
 
-/* 60 px keeps all ten rows, and the dialog around them, above the hint bar at 1080p. */
 .settings li {
     display: flex;
     align-items: center;
     justify-content: space-between;
     min-height: 60px;
     padding: 0 28px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 6px;
+    color: #ffffff;
     outline: none;
 }
 
 .settings li .label {
+    color: #ffffff;
     font-size: 28px;
     font-weight: 500;
 }
 
 .settings li.focused {
-    background: var(--panel-3);
+    background: #3d4450;
     box-shadow: inset 0 0 0 3px #ffffff;
 }
 
 .selector {
     display: flex;
     align-items: center;
-    color: var(--text-2);
+    color: #dcdedf;
     font-weight: 500;
 }
 
 .selector .chev {
     width: 34px;
-    color: var(--dim);
+    color: #7d8894;
     text-align: center;
     font-size: 34px;
     line-height: 1;
@@ -613,7 +602,7 @@ input.focusable.focused {
 }
 
 .switch.on {
-    background: var(--accent);
+    background: #1a9fff;
 }
 
 .switch.on::after {
@@ -622,13 +611,13 @@ input.focusable.focused {
 
 /* Stream */
 
-body.streaming .topbar, body.streaming .footer {
-    display: none;
+body.streaming .topbar, body.streaming .footer, body.streaming #home {
+    display: none !important;
 }
 
 .connect-hint {
     margin: 44px 0 0;
-    color: var(--muted);
+    color: #b0bcc8;
     font-size: 24px;
 }
 
@@ -637,16 +626,50 @@ body.streaming .topbar, body.streaming .footer {
 }
 
 .stream {
-    background: #000000;
+    background: transparent;
+    z-index: 2;
 }
 
-#tsl-video {
+body.streaming .stream {
+    cursor: none;
+}
+
+body.streaming .dialog {
+    cursor: auto;
+}
+
+#nacl-listener {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
+    width: 1920px;
+    height: 1080px;
+    overflow: hidden;
+    z-index: 0;
+    pointer-events: none;
+}
+
+body.streaming #nacl-listener {
+    z-index: 1;
+    pointer-events: none;
+}
+
+#nacl_module {
+    width: 1920px;
+    height: 1080px;
+    display: block;
+    background: transparent;
+    opacity: 0;
+    cursor: none;
+}
+
+body.streaming #nacl_module {
     background: #000000;
+    opacity: 1;
+}
+
+#tsl-video {
+    display: none !important;
 }
 
 .overlay {
@@ -663,7 +686,7 @@ body.streaming .topbar, body.streaming .footer {
     align-items: center;
     justify-content: center;
     background: radial-gradient(1200px 700px at 50% 40%, rgba(26, 72, 120, 0.35), rgba(0, 0, 0, 0) 70%),
-                linear-gradient(180deg, var(--bg-top), var(--bg-bottom));
+                linear-gradient(180deg, #0d1620, #16222f);
 }
 
 .connect-card {
@@ -683,13 +706,14 @@ body.streaming .topbar, body.streaming .footer {
 
 .connect-host {
     margin: 0 0 30px;
+    color: #ffffff;
     font-size: 52px;
     font-weight: 700;
 }
 
 .connect-text {
     margin: 26px 0 0;
-    color: var(--text-2);
+    color: #dcdedf;
     font-size: 30px;
 }
 
@@ -703,7 +727,7 @@ body.streaming .topbar, body.streaming .footer {
     height: 16px;
     margin: 0 8px;
     border-radius: 50%;
-    background: var(--accent);
+    background: #1a9fff;
     animation: pulse 1100ms ease-in-out infinite;
 }
 
@@ -717,7 +741,7 @@ body.streaming .topbar, body.streaming .footer {
 
 .throbber.stopped span {
     animation: none;
-    background: var(--dim);
+    background: #67707a;
 }
 
 @keyframes pulse {
@@ -731,8 +755,6 @@ body.streaming .topbar, body.streaming .footer {
     }
 }
 
-/* At the bottom: the statistics panel takes the top left, and grows wide enough to reach the
-   middle. 32 px keeps it clear of the toasts, which sit 104 px up. */
 .overlay.notice {
     bottom: 32px;
     left: 50%;
@@ -741,6 +763,7 @@ body.streaming .topbar, body.streaming .footer {
     padding: 18px 30px;
     border-radius: 10px;
     background: rgba(31, 36, 43, 0.94);
+    color: #ffffff;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
     font-size: 26px;
     transform: translateX(-50%);
@@ -765,6 +788,7 @@ body.streaming .topbar, body.streaming .footer {
     padding: 16px 22px;
     border-radius: 8px;
     background: rgba(15, 20, 25, 0.78);
+    color: #ffffff;
     font-family: "DejaVu Sans Mono", monospace;
     font-size: 20px;
     line-height: 1.45;
@@ -797,17 +821,18 @@ body.streaming .topbar, body.streaming .footer {
 .toast {
     position: absolute;
     z-index: 40;
-    right: var(--safe-x);
+    right: 96px;
     bottom: 104px;
     max-width: 760px;
     padding: 22px 30px 22px 26px;
-    border-left: 6px solid var(--accent);
+    border-left: 6px solid #1a9fff;
     border-radius: 8px;
     background: linear-gradient(90deg, #2a3038, #1f242b);
+    color: #ffffff;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55);
     font-size: 26px;
 }
 
 .toast.bad {
-    border-left-color: var(--bad);
+    border-left-color: #e2534b;
 }

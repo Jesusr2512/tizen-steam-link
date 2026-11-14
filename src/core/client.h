@@ -2,10 +2,10 @@
 
 #include <array>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <vector>
 
+#include "core/compat.h"
 #include "core/identity.h"
 #include "core/ihs.h"
 

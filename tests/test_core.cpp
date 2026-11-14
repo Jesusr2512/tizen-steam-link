@@ -95,6 +95,7 @@ void TestPin() {
 
 void TestKeymap() {
     CHECK_EQ(tsl::ScancodeFromDomCode("KeyA"), 4u);
+    CHECK_EQ(tsl::ScancodeFromDomCode("KeyD"), 7u);
     CHECK_EQ(tsl::ScancodeFromDomCode("KeyZ"), 29u);
     CHECK_EQ(tsl::ScancodeFromDomCode("Digit1"), 30u);
     CHECK_EQ(tsl::ScancodeFromDomCode("Digit0"), 39u);
@@ -103,6 +104,7 @@ void TestKeymap() {
     CHECK_EQ(tsl::ScancodeFromDomCode("ArrowUp"), 82u);
     CHECK_EQ(tsl::ScancodeFromDomCode("F12"), 69u);
     CHECK_EQ(tsl::ScancodeFromDomCode("ShiftLeft"), 225u);
+    CHECK_EQ(tsl::ScancodeFromDomCode("MetaLeft"), 227u);
     CHECK_EQ(tsl::ScancodeFromDomCode("MetaRight"), 231u);
     CHECK_EQ(tsl::ScancodeFromDomCode("Keya"), 0u);
     CHECK_EQ(tsl::ScancodeFromDomCode("Unidentified"), 0u);
@@ -1110,6 +1112,234 @@ void TestCounter64() {
 
 }  // namespace
 
+extern "C" {
+#include "ihs_queue.h"
+#include "protobuf/discovery.pb-c.h"
+#include "session/channels/ch_control.h"
+#include "session/frame.h"
+#include "session/session_pri.h"
+}
+
+namespace {
+
+bool MatchNthQueuePacket(IHS_QueueItem *item, void *context) {
+    (void) item;
+    int *remaining = static_cast<int *>(context);
+    if (*remaining == 0) return true;
+    (*remaining)--;
+    return false;
+}
+
+void RunNegotiationCase(bool unlimitedBitrate, bool desktopMode, int bitrateKbps, int expectedBitrateKbps,
+                        int expectedFormFactor, const char *expectedHotkey, int expectedDecodeCap,
+                        int expectedBurstCap) {
+    uint8_t random[tsl::Identity::kRandomBytes] = {7, 8, 9};
+    tsl::Identity id = tsl::Identity::FromRandom(random, "neg-test");
+    IHS_ClientConfig clientCfg = id.ClientConfig();
+
+    IHS_SessionInfo info{};
+    IHS_IPAddressFromString(&info.address.ip, "127.0.0.1");
+    info.address.port = 27031;
+    std::memset(info.sessionKey, 0x2a, 32);
+    info.sessionKeyLen = 32;
+
+    IHS_Session *raw = IHS_SessionCreate(&clientCfg, &info);
+    CHECK(raw != nullptr);
+    if (!raw) return;
+
+    struct NegotiateCtx {
+        bool unlimited;
+        bool desktop;
+        int bitrate;
+    } ctx{unlimitedBitrate, desktopMode, bitrateKbps};
+
+    IHS_StreamSessionCallbacks cbs{};
+    cbs.configuring = [](IHS_Session *, IHS_SessionConfig *cfg, void *c) {
+        auto *nc = static_cast<NegotiateCtx *>(c);
+        CHECK(!cfg->unlimitedBitrate);
+        CHECK(!cfg->desktopMode);
+        cfg->unlimitedBitrate = nc->unlimited;
+        cfg->desktopMode = nc->desktop;
+        cfg->bitrateKbps = nc->bitrate;
+    };
+    IHS_SessionSetSessionCallbacks(raw, &cbs, &ctx);
+    raw->state.connectionState = IHS_SessionConnectionStateNegotiating;
+
+    EStreamAudioCodec ac[] = {k_EStreamAudioCodecOpus};
+    EStreamVideoCodec vc[] = {k_EStreamVideoCodecH264};
+    CNegotiationInitMsg initMsg = CNEGOTIATION_INIT_MSG__INIT;
+    initMsg.n_supported_audio_codecs = 1;
+    initMsg.supported_audio_codecs = ac;
+    initMsg.n_supported_video_codecs = 1;
+    initMsg.supported_video_codecs = vc;
+
+    std::vector<uint8_t> packed(cnegotiation_init_msg__get_packed_size(&initMsg));
+    cnegotiation_init_msg__pack(&initMsg, packed.data());
+    IHS_Buffer initBuf;
+    IHS_BufferInit(&initBuf, packed.size(), packed.size());
+    IHS_BufferAppendMem(&initBuf, packed.data(), packed.size());
+
+    IHS_SessionPacketHeader hdr{};
+    hdr.packetId = 1;
+    IHS_SessionChannel *control = raw->channels[IHS_SessionChannelIdControl];
+    IHS_SessionChannelControlOnNegotiation(control, k_EStreamControlNegotiationInit, &initBuf, &hdr);
+    IHS_BufferClear(&initBuf, true);
+
+    int index = 0;
+    IHS_QueueItem *item = IHS_QueueFindBy(raw->sendQueue, MatchNthQueuePacket, &index);
+    CHECK(item != nullptr);
+    if (item) {
+        IHS_SessionPacket pktCopy{};
+        std::memcpy(&pktCopy, item, sizeof(pktCopy));
+        CHECK(pktCopy.body.size > 1);
+        CHECK_EQ(IHS_BufferPointer(&pktCopy.body)[0], k_EStreamControlNegotiationSetConfig);
+
+        IHS_Buffer cipher = pktCopy.body;
+        IHS_BufferOffsetBy(&cipher, 1);
+        IHS_Buffer plain;
+        IHS_BufferInit(&plain, 1024, 1024 * 1024);
+        uint64_t actualSeq = 999;
+        CHECK_EQ(IHS_SessionFrameDecrypt(raw, &cipher, &plain, 0, &actualSeq), IHS_SessionFrameDecryptOK);
+        CHECK_EQ(actualSeq, 0u);
+
+        CNegotiationSetConfigMsg *sent =
+                cnegotiation_set_config_msg__unpack(nullptr, plain.size, IHS_BufferPointer(&plain));
+        CHECK(sent != nullptr);
+        if (sent) {
+            CHECK(sent->streaming_client_config != nullptr);
+            CHECK(sent->streaming_client_caps != nullptr);
+            if (sent->streaming_client_config) {
+                CHECK_EQ(sent->streaming_client_config->maximum_bitrate_kbps, expectedBitrateKbps);
+                if (expectedHotkey) {
+                    CHECK(sent->streaming_client_config->controller_overlay_hotkey != nullptr);
+                    if (sent->streaming_client_config->controller_overlay_hotkey) {
+                        CHECK_EQ(std::string(sent->streaming_client_config->controller_overlay_hotkey),
+                                 std::string(expectedHotkey));
+                    }
+                } else {
+                    CHECK(sent->streaming_client_config->controller_overlay_hotkey == nullptr);
+                }
+            }
+            if (sent->streaming_client_caps) {
+                CHECK_EQ(sent->streaming_client_caps->form_factor, expectedFormFactor);
+                CHECK_EQ(sent->streaming_client_caps->maximum_decode_bitrate_kbps, expectedDecodeCap);
+                CHECK_EQ(sent->streaming_client_caps->maximum_burst_bitrate_kbps, expectedBurstCap);
+            }
+            cnegotiation_set_config_msg__free_unpacked(sent, nullptr);
+        }
+        IHS_BufferClear(&plain, true);
+    }
+
+    IHS_SessionDestroy(raw);
+}
+
+void TestNegotiationUnlimitedAndDesktop() {
+    RunNegotiationCase(true, true, 0, k_EStreamBitrateUnlimited, k_EStreamDeviceFormFactorComputer, nullptr, 65000,
+                       85000);
+    RunNegotiationCase(false, false, 0, 30000, k_EStreamDeviceFormFactorTV, "auto", 30000, 90000);
+}
+
+void TestSessionOptionsAndActivityCallbacks() {
+    tsl::SessionOptions defaults;
+    CHECK(!defaults.unlimitedBitrate);
+    CHECK(!defaults.desktopMode);
+    CHECK(defaults.audio);
+    CHECK(!defaults.keepPlayingAfterLoss);
+
+    CHECK_EQ(static_cast<int>(IHS_StreamActivityIdle), 1);
+    CHECK_EQ(static_cast<int>(IHS_StreamActivityGame), 2);
+    CHECK_EQ(static_cast<int>(IHS_StreamActivityDesktop), 3);
+    CHECK_EQ(static_cast<int>(IHS_StreamActivitySecureDesktop), 4);
+    CHECK_EQ(static_cast<int>(IHS_StreamActivityMusic), 5);
+
+    uint8_t random[tsl::Identity::kRandomBytes] = {4, 5, 6};
+    tsl::Identity id = tsl::Identity::FromRandom(random, "cb-test");
+    IHS_ClientConfig clientCfg = id.ClientConfig();
+    IHS_SessionInfo info{};
+    IHS_IPAddressFromString(&info.address.ip, "127.0.0.1");
+    info.address.port = 27031;
+    info.sessionKeyLen = 32;
+
+    IHS_Session *raw = IHS_SessionCreate(&clientCfg, &info);
+    CHECK(raw != nullptr);
+    if (raw) {
+        struct Telemetry {
+            std::string title;
+            IHS_StreamActivity activity = IHS_StreamActivityIdle;
+            int activityCalls = 0;
+        } tel;
+
+        IHS_StreamSessionCallbacks cbs{};
+        cbs.setTitle = [](IHS_Session *, const char *t, void *c) {
+            static_cast<Telemetry *>(c)->title = t ? t : "";
+        };
+        cbs.setActivity = [](IHS_Session *, IHS_StreamActivity act, void *c) {
+            auto *p = static_cast<Telemetry *>(c);
+            p->activity = act;
+            p->activityCalls++;
+        };
+        IHS_SessionSetSessionCallbacks(raw, &cbs, &tel);
+
+        IHS_SessionPacketHeader hdr{};
+        IHS_SessionChannel *control = raw->channels[IHS_SessionChannelIdControl];
+
+        CSetTitleMsg titleMsg = CSET_TITLE_MSG__INIT;
+        char desktopLabel[] = "Escritorio";
+        titleMsg.text = desktopLabel;
+        std::vector<uint8_t> titlePacked(cset_title_msg__get_packed_size(&titleMsg));
+        cset_title_msg__pack(&titleMsg, titlePacked.data());
+        IHS_Buffer titleBuf;
+        IHS_BufferInit(&titleBuf, titlePacked.size(), titlePacked.size());
+        IHS_BufferAppendMem(&titleBuf, titlePacked.data(), titlePacked.size());
+        IHS_SessionChannelControlOnMessageReceived(control, k_EStreamControlSetTitle, &titleBuf, &hdr);
+        IHS_BufferClear(&titleBuf, true);
+        CHECK_EQ(tel.title, std::string("Escritorio"));
+
+        CSetActivityMsg actMsg = CSET_ACTIVITY_MSG__INIT;
+        actMsg.has_activity = true;
+        actMsg.activity = k_EStreamActivityGame;
+        std::vector<uint8_t> actPacked(cset_activity_msg__get_packed_size(&actMsg));
+        cset_activity_msg__pack(&actMsg, actPacked.data());
+        IHS_Buffer actBuf;
+        IHS_BufferInit(&actBuf, actPacked.size(), actPacked.size());
+        IHS_BufferAppendMem(&actBuf, actPacked.data(), actPacked.size());
+        IHS_SessionChannelControlOnMessageReceived(control, k_EStreamControlSetActivity, &actBuf, &hdr);
+        IHS_BufferClear(&actBuf, true);
+        CHECK_EQ(tel.activityCalls, 1);
+        CHECK_EQ(static_cast<int>(tel.activity), static_cast<int>(IHS_StreamActivityGame));
+
+        IHS_SessionDestroy(raw);
+    }
+
+    NullSink sink;
+    tsl::HostKey key{};
+    tsl::SessionOptions opts;
+    opts.unlimitedBitrate = true;
+    opts.desktopMode = true;
+    tsl::Session session(id, key, info, opts, &sink, &sink);
+    CHECK(!session.connected());
+    tsl::SessionStats st = session.Stats();
+    CHECK_EQ(st.videoFrames, 0u);
+    CHECK_EQ(st.audioPackets, 0u);
+}
+
+void TestAudioDiscardThreshold() {
+    IHS_SessionPacketsWindow *window = IHS_SessionPacketsWindowCreate(64);
+    const uint32_t audioDiscardDiff = IHS_SESSION_PACKET_TIMESTAMP_FROM_MILLIS(40);
+    // Incomplete frame 0 (missing fragment 1) followed by frame 2 at +20ms: stays queued.
+    CHECK(AddPacket(window, 0, 0, 2));
+    CHECK(AddPacket(window, 2, 20));
+    CHECK_EQ(IHS_SessionPacketsWindowDiscard(window, audioDiscardDiff), 0);
+    CHECK_EQ(PollFrame(window), -1);
+    // Frame 3 at +50ms > 40ms threshold: stale incomplete head is discarded so frame 2 plays.
+    CHECK(AddPacket(window, 3, 50));
+    CHECK(IHS_SessionPacketsWindowDiscard(window, audioDiscardDiff) > 0);
+    CHECK_EQ(PollFrame(window), 2);
+    IHS_SessionPacketsWindowDestroy(window);
+}
+
+}  // namespace
+
 int main() {
     tsl::SetLogLevel(IHS_LogLevelWarn);
     IHS_Init();
@@ -1137,6 +1367,9 @@ int main() {
     TestAudioEmptyCodecData();
     TestWakePacket();
     TestCounter64();
+    TestNegotiationUnlimitedAndDesktop();
+    TestSessionOptionsAndActivityCallbacks();
+    TestAudioDiscardThreshold();
     IHS_Quit();
     std::printf("%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

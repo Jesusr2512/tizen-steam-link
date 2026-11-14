@@ -1,0 +1,110 @@
+Allow unlimited bitrate negotiation, raise auto decode caps without saturating 100BASE-TX bursts, pass actual display dimensions, and advertise Computer form factor in desktop mode.
+
+--- a/include/ihslib/session.h
++++ b/include/ihslib/session.h
+@@ -71,6 +71,10 @@ typedef struct IHS_SessionConfig {
+      * of dropping them until a keyframe comes. The picture may smear until the keyframe lands.
+      */
+     bool keepPlayingAfterLoss;
++    /** Send k_EStreamBitrateUnlimited (0) instead of treating 0 as default 30000 kbit/s. */
++    bool unlimitedBitrate;
++    /** Advertise Computer form factor and desktop controller defaults instead of TV Big Picture. */
++    bool desktopMode;
+ } IHS_SessionConfig;
+ 
+ typedef struct IHS_StreamSessionCallbacks {
+--- a/src/client/streaming.c
++++ b/src/client/streaming.c
+@@ -211,7 +211,9 @@ static uint64_t StreamingRequestTimer(int runCount, void *context) {
+                              request.streamingInterface == IHS_StreamInterfaceDesktop;
+ 
+     message.has_form_factor = true;
+-    message.form_factor = k_EStreamDeviceFormFactorTV;
++    message.form_factor = request.streamingInterface == IHS_StreamInterfaceDesktop
++                              ? k_EStreamDeviceFormFactorComputer
++                              : k_EStreamDeviceFormFactorTV;
+ 
+     message.has_device_token = true;
+     message.device_token.data = client->base.deviceToken;
+--- a/src/session/channels/ch_control_negotiation.c
++++ b/src/session/channels/ch_control_negotiation.c
+@@ -126,9 +126,11 @@ static void OnNegotiationInit(IHS_SessionChannel *channel, const CNegotiationIni
+ 
+     // 59.94 unless the app asks for more, in 1/100 fps.
+     uint32_t framerateNum = ihsConf.maxFramerate > 0 ? (uint32_t) ihsConf.maxFramerate * 100 : 5994;
++    int modeW = ihsConf.maxWidth > 0 ? ihsConf.maxWidth : 1920;
++    int modeH = ihsConf.maxHeight > 0 ? ihsConf.maxHeight : 1080;
+     CStreamVideoMode availableVideoMode = CSTREAM_VIDEO_MODE__INIT;
+-    availableVideoMode.width = 1920;
+-    availableVideoMode.height = 1080;
++    availableVideoMode.width = modeW;
++    availableVideoMode.height = modeH;
+     PROTOBUF_C_SET_VALUE(availableVideoMode, refresh_rate_numerator, framerateNum);
+     PROTOBUF_C_SET_VALUE(availableVideoMode, refresh_rate_denominator, 100);
+ 
+@@ -161,7 +163,8 @@ static void OnNegotiationInit(IHS_SessionChannel *channel, const CNegotiationIni
+     PROTOBUF_C_SET_VALUE(clientConfig, maximum_framerate_numerator, framerateNum);
+     PROTOBUF_C_SET_VALUE(clientConfig, maximum_framerate_denominator, 100);
+     // Field 6 is desired_bitrate_kbps in current Steam; ihslib's copy still calls it maximum.
+-    int bitrateKbps = ihsConf.bitrateKbps != 0 ? ihsConf.bitrateKbps : 30000;
++    int bitrateKbps = ihsConf.unlimitedBitrate ? k_EStreamBitrateUnlimited
++                      : (ihsConf.bitrateKbps != 0 ? ihsConf.bitrateKbps : 30000);
+     PROTOBUF_C_SET_VALUE(clientConfig, quality,
+                          ihsConf.quality != 0 ? (EStreamQualityPreference) ihsConf.quality : k_EStreamQualityBalanced);
+     PROTOBUF_C_SET_VALUE(clientConfig, maximum_bitrate_kbps, bitrateKbps);
+@@ -169,7 +172,9 @@ static void OnNegotiationInit(IHS_SessionChannel *channel, const CNegotiationIni
+         PROTOBUF_C_SET_VALUE(clientConfig, enable_video_hevc, true);
+     }
+ 
+-    clientConfig.controller_overlay_hotkey = "auto";
++    if (!ihsConf.desktopMode) {
++        clientConfig.controller_overlay_hotkey = "auto";
++    }
+ 
+     // enable_unreliable_fec (25) is newer than ihslib's copy of the protocol. protobuf-c packs
+     // unknown fields as they are, so it goes out that way.
+@@ -182,21 +187,33 @@ static void OnNegotiationInit(IHS_SessionChannel *channel, const CNegotiationIni
+ 
+     CStreamingClientCaps clientCaps = CSTREAMING_CLIENT_CAPS__INIT;
+ 
+-    clientCaps.system_info = "\"SystemInfo\"\n{\n\t\"OSType\"\t\t\"-197\"\n\t\"CPUID\"\t\t\"ARM\"\n"
+-                             "\t\"CPUGhz\"\t\t\"0.000000\"\n\t\"PhysicalCPUCount\"\t\"1\"\n"
+-                             "\t\"LogicalCPUCount\"\t\"1\"\n\t\"SystemRAM\"\t\t\"263\"\n"
+-                             "\t\"VideoVendorID\"\t\"0\"\n\t\"VideoDeviceID\"\t\"0\"\n"
+-                             "\t\"VideoRevision\"\t\"0\"\n\t\"VideoRAM\"\t\t\"0\"\n"
+-                             "\t\"VideoDisplayX\"\t\"1920\"\n\t\"VideoDisplayY\"\t\"1080\"\n"
+-                             "\t\"VideoDisplayNameID\"\t\"JN-MD133BFHDR\"\n}\n";
++    char systemInfo[512];
++    snprintf(systemInfo, sizeof(systemInfo),
++             "\"SystemInfo\"\n{\n\t\"OSType\"\t\t\"-197\"\n\t\"CPUID\"\t\t\"ARM\"\n"
++             "\t\"CPUGhz\"\t\t\"0.000000\"\n\t\"PhysicalCPUCount\"\t\"1\"\n"
++             "\t\"LogicalCPUCount\"\t\"1\"\n\t\"SystemRAM\"\t\t\"263\"\n"
++             "\t\"VideoVendorID\"\t\"0\"\n\t\"VideoDeviceID\"\t\"0\"\n"
++             "\t\"VideoRevision\"\t\"0\"\n\t\"VideoRAM\"\t\t\"0\"\n"
++             "\t\"VideoDisplayX\"\t\"%d\"\n\t\"VideoDisplayY\"\t\"%d\"\n"
++             "\t\"VideoDisplayNameID\"\t\"TizenTV\"\n}\n",
++             modeW, modeH);
++    clientCaps.system_info = systemInfo;
+     PROTOBUF_C_SET_VALUE(clientCaps, system_can_suspend, true);
+-    // Steam keeps the stream under what the client says it can decode.
+-    PROTOBUF_C_SET_VALUE(clientCaps, maximum_decode_bitrate_kbps, bitrateKbps > 30000 ? bitrateKbps : 30000);
+-    PROTOBUF_C_SET_VALUE(clientCaps, maximum_burst_bitrate_kbps, bitrateKbps > 30000 ? bitrateKbps * 3 : 90000);
++    // Steam keeps the stream under what the client says it can decode; keep burst under 85 Mbit/s
++    // so 1 Gbit/s hosts do not saturate a 100BASE-TX TV NIC when UDP/FEC overhead is added.
++    int decodeCap = (ihsConf.unlimitedBitrate || bitrateKbps < 0)
++                        ? 65000
++                        : (bitrateKbps > 30000 ? (bitrateKbps > 85000 ? 85000 : bitrateKbps) : 30000);
++    int burstCap = (ihsConf.unlimitedBitrate || bitrateKbps < 0)
++                       ? 85000
++                       : (bitrateKbps > 30000 ? (bitrateKbps * 3 > 85000 ? 85000 : bitrateKbps * 3) : 90000);
++    PROTOBUF_C_SET_VALUE(clientCaps, maximum_decode_bitrate_kbps, decodeCap);
++    PROTOBUF_C_SET_VALUE(clientCaps, maximum_burst_bitrate_kbps, burstCap);
+     if (ihsConf.enableHevc) {
+         PROTOBUF_C_SET_VALUE(clientCaps, supports_video_hevc, true);
+     }
+-    PROTOBUF_C_SET_VALUE(clientCaps, form_factor, k_EStreamDeviceFormFactorTV);
++    PROTOBUF_C_SET_VALUE(clientCaps, form_factor,
++                         ihsConf.desktopMode ? k_EStreamDeviceFormFactorComputer : k_EStreamDeviceFormFactorTV);
+     // HDR10 (5) is newer than ihslib's copy of EStreamColorspace. Without a list Steam picks an SDR
+     // colorspace, so the list is only sent to offer HDR10, with the SDR ones next to it.
+     EStreamColorspace colorspaces[] = {k_EStreamColorspace_BT709, k_EStreamColorspace_BT601,
